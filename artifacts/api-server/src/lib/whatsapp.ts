@@ -12,7 +12,7 @@ import { keyForAlias } from "./commandRegistry.js";
 
 const activeSockets = new Map<string, ReturnType<typeof makeWASocket>>();
 const qrCodes = new Map<string, string>();
-const botPrefixes = new Map<string, string>();
+const botPrefixes = new Map<string, string[]>();
 
 const silentLogger = pino({ level: "silent" });
 
@@ -27,6 +27,7 @@ type CommandContext = {
   fullText: string;
   botName: string;
   prefix: string;
+  botId: string;
   quotedMsg?: WAMessage["message"];
 };
 
@@ -47,13 +48,18 @@ defineCommand(["ping", "p"], async ({ sock, jid }) => {
 });
 
 // .menu / .help / .start
-defineCommand(["menu", "help", "start"], async ({ sock, jid, prefix, botName, isGroup }) => {
+defineCommand(["menu", "help", "start"], async ({ sock, jid, prefix, botName, isGroup, botId }) => {
+  const botDoc = await Bot.findById(botId).lean();
+  const prefixList: string[] = (botDoc as any)?.prefixes?.length
+    ? (botDoc as any).prefixes
+    : [prefix];
+  const prefixDisplay = prefixList.map((p) => `\`${p}\``).join(", ");
   const text = [
     `╔══════════════════════╗`,
     `║   🤖 *${botName}*`,
     `╚══════════════════════╝`,
     ``,
-    `📌 *Prefix:* \`${prefix}\``,
+    `📌 *Prefix:* ${prefixDisplay}`,
     `📍 *Mode:* ${isGroup ? "Grup" : "Private"}`,
     ``,
     `━━━ 📋 *PERINTAH* ━━━`,
@@ -105,9 +111,16 @@ defineCommand(["runtime", "uptime"], async ({ sock, jid }) => {
 });
 
 // .owner
-defineCommand(["owner"], async ({ sock, jid }) => {
+defineCommand(["owner"], async ({ sock, jid, botId }) => {
+  const botDoc = await Bot.findById(botId).lean();
+  const owners: Array<{ name: string; phoneNumber: string }> = (botDoc as any)?.owners ?? [];
+  if (owners.length === 0) {
+    await sock.sendMessage(jid, { text: `👤 *Owner Bot*\n\nTidak ada owner yang terdaftar.` });
+    return;
+  }
+  const lines = owners.map((o, i) => `${i + 1}. *${o.name}* — wa.me/${o.phoneNumber.replace(/\D/g, "")}`);
   await sock.sendMessage(jid, {
-    text: `👤 *Owner Bot*\n\nHubungi admin/owner melalui platform dashboard.`,
+    text: `👤 *Owner Bot*\n\n${lines.join("\n")}`,
   });
 });
 
@@ -153,7 +166,7 @@ async function handleMessage(
     const text = extractText(msg);
     if (!text) return;
 
-    const prefix = botPrefixes.get(botId) ?? ".";
+    const prefixes = botPrefixes.get(botId) ?? ["."];
     const trimmed = text.trim();
 
     const isGroup = jid.endsWith("@g.us");
@@ -161,25 +174,28 @@ async function handleMessage(
     const senderShort = shortJid(sender || jid);
     const chatLabel = isGroup ? "grup" : "private";
 
-    // Log incoming message (show only if it's a command)
-    if (!trimmed.startsWith(prefix)) {
+    // Find which prefix was used (longest match first to avoid ambiguity)
+    const sorted = [...prefixes].sort((a, b) => b.length - a.length);
+    const matchedPrefix = sorted.find((p) => trimmed.startsWith(p));
+
+    if (!matchedPrefix) {
       emitBotLog(botId, `Pesan ${chatLabel} dari ${senderShort}`, "muted");
       return;
     }
 
-    const withoutPrefix = trimmed.slice(prefix.length).trim();
+    const withoutPrefix = trimmed.slice(matchedPrefix.length).trim();
     const parts = withoutPrefix.split(/\s+/);
     const commandName = parts[0]?.toLowerCase() ?? "";
     const args = parts.slice(1);
 
     logger.info({ botId, jid, isGroup, commandName }, "Command received");
-    emitBotLog(botId, `Perintah ${prefix}${commandName} dari ${senderShort} [${chatLabel}]`, "info");
+    emitBotLog(botId, `Perintah ${matchedPrefix}${commandName} dari ${senderShort} [${chatLabel}]`, "info");
 
     const handler = commands.get(commandName);
     if (!handler) {
-      emitBotLog(botId, `Perintah "${prefix}${commandName}" tidak dikenal`, "warn");
+      emitBotLog(botId, `Perintah "${matchedPrefix}${commandName}" tidak dikenal`, "warn");
       await sock.sendMessage(jid, {
-        text: `❓ Perintah *${prefix}${commandName}* tidak dikenal.\n\nKetik *${prefix}menu* untuk melihat daftar perintah.`,
+        text: `❓ Perintah *${matchedPrefix}${commandName}* tidak dikenal.\n\nKetik *${matchedPrefix}menu* untuk melihat daftar perintah.`,
       });
       return;
     }
@@ -195,9 +211,9 @@ async function handleMessage(
         if (val === false) enabled = false;
       }
       if (!enabled) {
-        emitBotLog(botId, `Perintah ${prefix}${commandName} dinonaktifkan oleh owner`, "warn");
+        emitBotLog(botId, `Perintah ${matchedPrefix}${commandName} dinonaktifkan oleh owner`, "warn");
         await sock.sendMessage(jid, {
-          text: `🚫 Perintah *${prefix}${commandName}* sedang dinonaktifkan.`,
+          text: `🚫 Perintah *${matchedPrefix}${commandName}* sedang dinonaktifkan.`,
         });
         return;
       }
@@ -213,11 +229,12 @@ async function handleMessage(
       args,
       fullText: withoutPrefix,
       botName,
-      prefix,
+      prefix: matchedPrefix,
+      botId,
       quotedMsg: msg.message?.extendedTextMessage?.contextInfo?.quotedMessage ?? undefined,
     });
 
-    emitBotLog(botId, `Berhasil menjalankan ${prefix}${commandName}`, "success");
+    emitBotLog(botId, `Berhasil menjalankan ${matchedPrefix}${commandName}`, "success");
     await sock.sendPresenceUpdate("paused", jid);
   } catch (err) {
     logger.error({ botId, err }, "Error handling message");
@@ -237,8 +254,11 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
 
   const botDoc = await Bot.findById(botId);
   const botName = botDoc?.name ?? "WhatsApp Bot";
-  const prefix = botDoc?.prefix ?? ".";
-  botPrefixes.set(botId, prefix);
+  const rawPrefixes = botDoc?.prefixes && botDoc.prefixes.length > 0
+    ? botDoc.prefixes
+    : [botDoc?.prefix ?? "."];
+  botPrefixes.set(botId, rawPrefixes);
+  const prefix = rawPrefixes[0];
 
   const { state, saveCreds } = await useMongoAuthState(botId);
 
