@@ -18,35 +18,19 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "API Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Dashboard"
+args = "Start application"
 
 [[workflows.workflow]]
-name = "API Server"
+name = "Start application"
 author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=8080 pnpm --filter @workspace/api-server run dev"
-waitForPort = 8080
-
-[[workflows.workflow]]
-name = "Dashboard"
-author = "agent"
+args = "PORT=8080 pnpm --filter @workspace/api-server run dev & PORT=8000 BASE_PATH=/ pnpm --filter @workspace/dashboard run dev"
+waitForPort = 8000
 
 [workflows.workflow.metadata]
 outputType = "webview"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "PORT=8000 BASE_PATH=/ pnpm --filter @workspace/dashboard run dev"
-waitForPort = 8000
 
 [agent]
 stack = "PNPM_WORKSPACE"
