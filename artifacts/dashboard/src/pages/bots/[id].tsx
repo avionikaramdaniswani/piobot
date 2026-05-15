@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { 
   useGetBot, 
@@ -32,8 +32,11 @@ const statusLabel: Record<string, string> = {
 };
 
 function generateSimulatedQR(botId: string, seed: number): string {
-  const base = `${botId}-${seed}-${Date.now()}`;
-  return `1@${btoa(base).replace(/[^a-zA-Z0-9]/g, "").slice(0, 60)},${Math.random().toString(36).slice(2, 20)},${Math.random().toString(36).slice(2, 20)}`;
+  const base = `${botId}-${seed}`;
+  const encoded = btoa(base).replace(/[^a-zA-Z0-9]/g, "").slice(0, 60);
+  const part2 = btoa(`s2-${seed}`).replace(/[^a-zA-Z0-9]/g, "").slice(0, 20);
+  const part3 = btoa(`s3-${seed}`).replace(/[^a-zA-Z0-9]/g, "").slice(0, 20);
+  return `1@${encoded},${part2},${part3}`;
 }
 
 export default function BotDetail({ id }: { id: string }) {
@@ -142,7 +145,7 @@ export default function BotDetail({ id }: { id: string }) {
   const isConnected = bot.status === "connected";
   const isConnecting = bot.status === "connecting";
   const isOffline = bot.status === "disconnected" || bot.status === "inactive";
-  const qrData = generateSimulatedQR(id, qrSeed);
+  const qrData = useMemo(() => generateSimulatedQR(id, qrSeed), [id, qrSeed]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
