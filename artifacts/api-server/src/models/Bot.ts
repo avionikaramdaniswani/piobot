@@ -8,6 +8,18 @@ const ownerSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const filterRuleSchema = new mongoose.Schema(
+  {
+    command: { type: String, required: true },
+    scope: { type: String, enum: ["group", "private", "number"], required: true },
+    target: { type: String, default: "" },
+    targetLabel: { type: String, default: "" },
+    action: { type: String, enum: ["block"], default: "block" },
+    enabled: { type: Boolean, default: true },
+  },
+  { timestamps: true },
+);
+
 const botSchema = new mongoose.Schema(
   {
     ownerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -21,6 +33,7 @@ const botSchema = new mongoose.Schema(
     prefix: { type: String, default: "." },
     prefixes: { type: [String], default: [] },
     owners: { type: [ownerSchema], default: [] },
+    filterRules: { type: [filterRuleSchema], default: [] },
     connectedAt: { type: Date, default: null },
     commands: { type: Map, of: Boolean, default: {} },
   },
@@ -32,6 +45,16 @@ export interface IBotOwner {
   phoneNumber: string;
 }
 
+export interface IFilterRule extends mongoose.Document {
+  command: string;
+  scope: "group" | "private" | "number";
+  target: string;
+  targetLabel: string;
+  action: "block";
+  enabled: boolean;
+  createdAt: Date;
+}
+
 export interface IBot extends mongoose.Document {
   ownerId: mongoose.Types.ObjectId;
   name: string;
@@ -40,6 +63,7 @@ export interface IBot extends mongoose.Document {
   prefix: string;
   prefixes: string[];
   owners: IBotOwner[];
+  filterRules: IFilterRule[];
   connectedAt: Date | null;
   createdAt: Date;
   commands: Map<string, boolean>;
