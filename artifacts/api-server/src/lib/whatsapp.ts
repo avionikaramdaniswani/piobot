@@ -52,11 +52,36 @@ function normalizePhone(raw: string): string {
   return num;
 }
 
-async function isBotOwner(botId: string, sender: string): Promise<boolean> {
+async function resolveSenderPhone(
+  sock: ReturnType<typeof makeWASocket>,
+  sender: string,
+): Promise<string> {
+  // LID JID: "78752604233848@lid" — perlu di-resolve ke nomor telepon dulu
+  if (sender.endsWith("@lid")) {
+    try {
+      const signalRepo = (sock as any).signalRepository;
+      const result = await signalRepo?.lidMapping?.getPNForLID(sender);
+      if (result?.pn) {
+        const pnNum = result.pn.split("@")[0]?.split(":")[0] ?? "";
+        logger.info({ lid: sender, pn: result.pn, pnNum }, "LID resolved to PN");
+        return normalizePhone(pnNum);
+      }
+    } catch (err) {
+      logger.warn({ err, sender }, "Failed to resolve LID to PN");
+    }
+  }
+  // Nomor biasa: "628xxx@s.whatsapp.net" atau "628xxx:0@s.whatsapp.net"
+  return normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
+}
+
+async function isBotOwner(
+  botId: string,
+  sender: string,
+  sock: ReturnType<typeof makeWASocket>,
+): Promise<boolean> {
   const botDoc = await Bot.findById(botId).lean();
   const owners: Array<{ phoneNumber: string }> = (botDoc as any)?.owners ?? [];
-  // Sender JID: "628xxx@s.whatsapp.net" atau "628xxx:0@s.whatsapp.net"
-  const senderNum = normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
+  const senderNum = await resolveSenderPhone(sock, sender);
   const ownerNums = owners.map((o) => normalizePhone(o.phoneNumber));
   const matched = ownerNums.some((n) => n === senderNum);
   logger.info({ senderNum, ownerNums, matched, botId }, "isBotOwner check");
@@ -66,13 +91,14 @@ async function isBotOwner(botId: string, sender: string): Promise<boolean> {
 async function isBotOwnerDebug(
   botId: string,
   sender: string,
-): Promise<{ matched: boolean; senderNum: string; ownerNums: string[] }> {
+  sock: ReturnType<typeof makeWASocket>,
+): Promise<{ matched: boolean; senderNum: string; ownerNums: string[]; rawSender: string }> {
   const botDoc = await Bot.findById(botId).lean();
   const owners: Array<{ phoneNumber: string }> = (botDoc as any)?.owners ?? [];
-  const senderNum = normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
+  const senderNum = await resolveSenderPhone(sock, sender);
   const ownerNums = owners.map((o) => normalizePhone(o.phoneNumber));
   const matched = ownerNums.some((n) => n === senderNum);
-  return { matched, senderNum, ownerNums };
+  return { matched, senderNum, ownerNums, rawSender: sender };
 }
 
 async function isGroupAdmin(
@@ -143,7 +169,7 @@ defineCommand(["swgc"], async ({ sock, jid, sender, isGroup, args, prefix, botId
     return;
   }
 
-  const owner = await isBotOwner(botId, sender);
+  const owner = await isBotOwner(botId, sender, sock);
   const admin = await isGroupAdmin(sock, jid, sender);
 
   if (!owner && !admin) {
@@ -175,7 +201,7 @@ defineCommand(["swgc"], async ({ sock, jid, sender, isGroup, args, prefix, botId
 
 // .swgcbyid — kirim status ke grup by ID (bisa dari chat pribadi)
 defineCommand(["swgcbyid"], async ({ sock, jid, sender, args, prefix, botId, msg }) => {
-  const owner = await isBotOwner(botId, sender);
+  const owner = await isBotOwner(botId, sender, sock);
   if (!owner) {
     await sock.sendMessage(jid, {
       text: `🚫 Perintah ini hanya untuk *owner bot*.`,
@@ -215,12 +241,13 @@ defineCommand(["swgcbyid"], async ({ sock, jid, sender, args, prefix, botId, msg
 
 // .cekowner — debug: tampilkan nomor terdeteksi vs owner tersimpan
 defineCommand(["cekowner"], async ({ sock, jid, sender, botId }) => {
-  const { matched, senderNum, ownerNums } = await isBotOwnerDebug(botId, sender);
-  const rawSender = sender;
+  const { matched, senderNum, ownerNums, rawSender } = await isBotOwnerDebug(botId, sender, sock);
+  const isLid = rawSender.endsWith("@lid");
   const text = [
     `🔍 *Debug Owner Check*`,
     ``,
     `📱 JID kamu (raw): \`${rawSender}\``,
+    isLid ? `🔗 Tipe: *LID* (WhatsApp modern — perlu mapping ke nomor)` : `🔗 Tipe: *PN* (nomor telepon biasa)`,
     `🔢 Nomor terdeteksi: \`${senderNum}\``,
     ``,
     `👑 Owner tersimpan di DB:`,
@@ -237,7 +264,7 @@ defineCommand(["cekowner"], async ({ sock, jid, sender, botId }) => {
 
 // .showidgroup / .listgroup / .grupid
 defineCommand(["showidgroup", "listgroup", "grupid"], async ({ sock, jid, sender, botId, prefix }) => {
-  const owner = await isBotOwner(botId, sender);
+  const owner = await isBotOwner(botId, sender, sock);
   if (!owner) {
     await sock.sendMessage(jid, { text: `🚫 Perintah ini hanya untuk *owner bot*.` });
     return;
