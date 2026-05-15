@@ -2,6 +2,7 @@ import makeWASocket, {
   DisconnectReason,
   Browsers,
   WAMessage,
+  downloadMediaMessage,
 } from "ourin-baileys";
 import pino from "pino";
 import { Bot } from "../models/Bot.js";
@@ -31,6 +32,7 @@ type CommandContext = {
   botId: string;
   pushName: string;
   quotedMsg?: WAMessage["message"];
+  msg: WAMessage;
 };
 
 type CommandHandler = (ctx: CommandContext) => Promise<void>;
@@ -40,6 +42,133 @@ const commands = new Map<string, CommandHandler>();
 function defineCommand(names: string[], handler: CommandHandler) {
   for (const name of names) commands.set(name, handler);
 }
+
+// ─── Permission Helpers ────────────────────────────────────────────────────────
+
+async function isBotOwner(botId: string, sender: string): Promise<boolean> {
+  const botDoc = await Bot.findById(botId).lean();
+  const owners: Array<{ phoneNumber: string }> = (botDoc as any)?.owners ?? [];
+  const senderNum = sender.split("@")[0]?.split(":")[0] ?? "";
+  return owners.some((o) => o.phoneNumber.replace(/\D/g, "") === senderNum);
+}
+
+async function isGroupAdmin(
+  sock: ReturnType<typeof makeWASocket>,
+  jid: string,
+  sender: string,
+): Promise<boolean> {
+  try {
+    const metadata = await sock.groupMetadata(jid);
+    return metadata.participants.some(
+      (p) => p.id === sender && (p.admin === "admin" || p.admin === "superadmin"),
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function resolveGroupStatusContent(
+  sock: ReturnType<typeof makeWASocket>,
+  msg: WAMessage,
+  args: string[],
+): Promise<{ content: Record<string, unknown>; error?: string }> {
+  const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+
+  if (quoted?.imageMessage || quoted?.videoMessage) {
+    const quotedWAMsg = {
+      key: {
+        remoteJid: msg.key.remoteJid,
+        fromMe: false,
+        id: msg.message?.extendedTextMessage?.contextInfo?.stanzaId,
+        participant: msg.message?.extendedTextMessage?.contextInfo?.participant,
+      },
+      message: quoted,
+    } as WAMessage;
+
+    const buffer = (await downloadMediaMessage(quotedWAMsg, "buffer", {})) as Buffer;
+
+    if (quoted.imageMessage) {
+      const caption = quoted.imageMessage.caption || args.join(" ") || "";
+      return { content: { image: buffer, caption } };
+    } else {
+      const caption = quoted.videoMessage?.caption || args.join(" ") || "";
+      return { content: { video: buffer, caption } };
+    }
+  }
+
+  const text = args.join(" ").trim();
+  if (!text) {
+    return { content: {}, error: "no_content" };
+  }
+  return { content: { text } };
+}
+
+// ─── Commands ──────────────────────────────────────────────────────────────────
+
+// .swgc — kirim status ke grup aktif (reply foto/video/teks)
+defineCommand(["swgc"], async ({ sock, jid, sender, isGroup, args, prefix, botId, msg }) => {
+  if (!isGroup) {
+    await sock.sendMessage(jid, {
+      text: `⚠️ *${prefix}swgc* hanya bisa dipakai di dalam grup.\n\nUntuk private chat, gunakan *${prefix}swgcbyid (id_grup)*.`,
+    });
+    return;
+  }
+
+  const owner = await isBotOwner(botId, sender);
+  const admin = await isGroupAdmin(sock, jid, sender);
+
+  if (!owner && !admin) {
+    await sock.sendMessage(jid, {
+      text: `🚫 Perintah ini hanya untuk *owner bot* atau *admin grup*.`,
+    });
+    return;
+  }
+
+  const { content, error } = await resolveGroupStatusContent(sock, msg, args);
+
+  if (error === "no_content") {
+    await sock.sendMessage(jid, {
+      text: `❌ *Cara pakai:*\n• *${prefix}swgc* [teks]\n• Reply foto/video + *${prefix}swgc*`,
+    });
+    return;
+  }
+
+  await sock.sendMessage("status@broadcast", content as any, { statusJidList: [jid] });
+  await sock.sendMessage(jid, { text: `✅ Status grup berhasil dikirim!` });
+});
+
+// .swgcbyid — kirim status ke grup by ID (bisa dari chat pribadi)
+defineCommand(["swgcbyid"], async ({ sock, jid, sender, args, prefix, botId, msg }) => {
+  const owner = await isBotOwner(botId, sender);
+  if (!owner) {
+    await sock.sendMessage(jid, {
+      text: `🚫 Perintah ini hanya untuk *owner bot*.`,
+    });
+    return;
+  }
+
+  const rawId = args[0] ?? "";
+  if (!rawId) {
+    await sock.sendMessage(jid, {
+      text: `❌ *Cara pakai:*\n• *${prefix}swgcbyid* (id_grup) [teks]\n• Reply foto/video + *${prefix}swgcbyid* (id_grup)`,
+    });
+    return;
+  }
+
+  const targetJid = rawId.endsWith("@g.us") ? rawId : `${rawId}@g.us`;
+  const contentArgs = args.slice(1);
+  const { content, error } = await resolveGroupStatusContent(sock, msg, contentArgs);
+
+  if (error === "no_content") {
+    await sock.sendMessage(jid, {
+      text: `❌ *Cara pakai:*\n• *${prefix}swgcbyid* (id_grup) [teks]\n• Reply foto/video + *${prefix}swgcbyid* (id_grup)`,
+    });
+    return;
+  }
+
+  await sock.sendMessage("status@broadcast", content as any, { statusJidList: [targetJid] });
+  await sock.sendMessage(jid, { text: `✅ Status berhasil dikirim ke grup \`${targetJid}\`!` });
+});
 
 // .ping / .p
 defineCommand(["ping", "p"], async ({ sock, jid }) => {
@@ -75,6 +204,10 @@ defineCommand(["menu", "help", "start"], async ({ sock, jid, prefix, botName, is
     ``,
     `👤 *Akun*`,
     `${prefix}profile    - Lihat profil & saldo kamu`,
+    ``,
+    `👥 *Grup*`,
+    `${prefix}swgc       - Kirim status ke grup ini`,
+    `${prefix}swgcbyid   - Kirim status ke grup by ID`,
     ``,
     `> Ketik perintah di atas untuk memulai!`,
   ].join("\n");
@@ -354,6 +487,7 @@ async function handleMessage(
       botId,
       pushName: (msg as any).pushName ?? "",
       quotedMsg: msg.message?.extendedTextMessage?.contextInfo?.quotedMessage ?? undefined,
+      msg,
     });
 
     emitBotLog(botId, `Berhasil menjalankan ${matchedPrefix}${commandName}`, "success");

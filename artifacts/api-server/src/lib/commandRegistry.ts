@@ -49,6 +49,20 @@ export const COMMAND_REGISTRY: CommandMeta[] = [
     usage: ".profile",
     category: "Akun",
   },
+  {
+    key: "swgc",
+    aliases: ["swgc"],
+    description: "Kirim status/story ke grup aktif (reply foto/video/teks) — khusus owner & admin grup",
+    usage: ".swgc [teks] atau reply foto/video",
+    category: "Grup",
+  },
+  {
+    key: "swgcbyid",
+    aliases: ["swgcbyid"],
+    description: "Kirim status/story ke grup berdasarkan ID — khusus owner bot",
+    usage: ".swgcbyid (id_grup) [teks] atau reply foto/video",
+    category: "Grup",
+  },
 ];
 
 export const ALL_ALIASES = new Set(COMMAND_REGISTRY.flatMap((c) => c.aliases));
