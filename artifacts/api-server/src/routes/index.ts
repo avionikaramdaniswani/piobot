@@ -4,6 +4,7 @@ import authRouter from "./auth";
 import botsRouter from "./bots";
 import subscriptionsRouter from "./subscriptions";
 import botUsersRouter from "./botUsers";
+import botMessagesRouter from "./botMessages";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(authRouter);
 router.use(botsRouter);
 router.use(subscriptionsRouter);
 router.use(botUsersRouter);
+router.use(botMessagesRouter);
 
 export default router;

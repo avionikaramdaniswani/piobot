@@ -103,7 +103,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </p>
           </div>
           <NavItem href="/config" label="Config" icon={Settings} active={isActive("/config")} />
-          <NavItem href="/mess" label="Mess" icon={MessageSquare} disabled active={false} />
+          <NavItem href="/mess" label="Mess" icon={MessageSquare} active={isActive("/mess")} />
           <NavItem href="/command" label="Command" icon={TerminalSquare} active={isActive("/command")} />
           <NavItem href="/bot-users" label="Pengguna Bot" icon={Users} active={isActive("/bot-users")} />
           <NavItem href="/filter" label="Filter Command" icon={Filter} disabled active={false} />
