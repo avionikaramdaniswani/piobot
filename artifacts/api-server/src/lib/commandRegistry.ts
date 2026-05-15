@@ -42,6 +42,13 @@ export const COMMAND_REGISTRY: CommandMeta[] = [
     usage: ".owner",
     category: "Utilitas",
   },
+  {
+    key: "profile",
+    aliases: ["profile", "profil", "me"],
+    description: "Tampilkan profil kamu di bot ini (balance, limit, statistik)",
+    usage: ".profile",
+    category: "Akun",
+  },
 ];
 
 export const ALL_ALIASES = new Set(COMMAND_REGISTRY.flatMap((c) => c.aliases));

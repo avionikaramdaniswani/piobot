@@ -65,11 +65,15 @@ defineCommand(["menu", "help", "start"], async ({ sock, jid, prefix, botName, is
     ``,
     `━━━ 📋 *PERINTAH* ━━━`,
     ``,
+    `🔧 *Utilitas*`,
     `${prefix}ping       - Cek latensi bot`,
     `${prefix}menu       - Tampilkan menu ini`,
     `${prefix}info       - Info bot`,
     `${prefix}runtime    - Waktu aktif bot`,
     `${prefix}owner      - Kontak owner`,
+    ``,
+    `👤 *Akun*`,
+    `${prefix}profile    - Lihat profil & saldo kamu`,
     ``,
     `> Ketik perintah di atas untuk memulai!`,
   ].join("\n");
@@ -123,6 +127,94 @@ defineCommand(["owner"], async ({ sock, jid, botId }) => {
   await sock.sendMessage(jid, {
     text: `👤 *Owner Bot*\n\n${lines.join("\n")}`,
   });
+});
+
+// .profile / .profil / .me
+defineCommand(["profile", "profil", "me"], async ({ sock, jid, sender, botId, botName, prefix }) => {
+  const senderJid = sender || jid;
+
+  // Ensure BotUser exists (will create with default values if first time)
+  const botUser = await ensureBotUser(botId, senderJid);
+
+  // Build display number (strip @s.whatsapp.net / :XX@)
+  const rawNum = senderJid.split("@")[0]?.split(":")[0] ?? senderJid;
+  const displayNum = rawNum.length > 8
+    ? `+${rawNum.slice(0, 4)}****${rawNum.slice(-4)}`
+    : `+${rawNum}`;
+
+  const displayName = botUser.displayName || displayNum;
+
+  // Limit bar visual (out of 25 default)
+  const DEFAULT_LIMIT = 25;
+  const limitPct = Math.round((botUser.limit / DEFAULT_LIMIT) * 10);
+  const limitBar =
+    "█".repeat(Math.max(0, limitPct)) +
+    "░".repeat(Math.max(0, 10 - limitPct));
+
+  // Balance bar (cap at 1000 for display)
+  const balanceCap = 1000;
+  const balancePct = Math.min(10, Math.round((botUser.balance / balanceCap) * 10));
+  const balanceBar =
+    "█".repeat(Math.max(0, balancePct)) +
+    "░".repeat(Math.max(0, 10 - balancePct));
+
+  // Next reset time — always 00.00 WIB tomorrow
+  const WIB_OFFSET = 7 * 60 * 60 * 1000;
+  const nowWIB = new Date(Date.now() + WIB_OFFSET);
+  const tomorrowWIB = new Date(
+    Date.UTC(nowWIB.getUTCFullYear(), nowWIB.getUTCMonth(), nowWIB.getUTCDate() + 1),
+  );
+  const resetUTC = new Date(tomorrowWIB.getTime() - WIB_OFFSET);
+  const msLeft = resetUTC.getTime() - Date.now();
+  const hLeft = Math.floor(msLeft / 3_600_000);
+  const mLeft = Math.floor((msLeft % 3_600_000) / 60_000);
+  const resetCountdown = `${hLeft}j ${mLeft}m`;
+
+  // Member since
+  const joined = new Date((botUser as any).createdAt ?? Date.now());
+  const joinedStr = joined.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Asia/Jakarta",
+  });
+
+  // Limit status label
+  const limitStatus =
+    botUser.limit === 0
+      ? "🔴 Habis"
+      : botUser.limit < 5
+      ? "🟡 Hampir habis"
+      : "🟢 Normal";
+
+  const text = [
+    `╔══════════════════════╗`,
+    `║   👤 *PROFIL PENGGUNA*   ║`,
+    `╚══════════════════════╝`,
+    ``,
+    `🏷️ *Nama*     : ${displayName}`,
+    `📱 *Nomor*    : ${displayNum}`,
+    `📅 *Bergabung*: ${joinedStr}`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━`,
+    `💰 *BALANCE*`,
+    `  Saldo  : *${botUser.balance.toLocaleString("id-ID")}* koin`,
+    `  [${balanceBar}]`,
+    ``,
+    `⚡ *LIMIT HARIAN*`,
+    `  Sisa   : *${botUser.limit} / ${DEFAULT_LIMIT}* limit`,
+    `  Status : ${limitStatus}`,
+    `  [${limitBar}]`,
+    `  Reset  : *${resetCountdown}* lagi (00.00 WIB)`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━`,
+    `📊 *STATISTIK*`,
+    `  Total command : *${botUser.totalCommandsUsed.toLocaleString("id-ID")}x*`,
+    ``,
+    `> Ketik *${prefix}menu* untuk melihat semua perintah`,
+  ].join("\n");
+
+  await sock.sendMessage(jid, { text });
 });
 
 // ─── Message Handler ──────────────────────────────────────────────────────────
