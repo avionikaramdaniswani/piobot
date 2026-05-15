@@ -1,8 +1,7 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { eq } from "drizzle-orm";
-import { db, usersTable } from "@workspace/db";
+import { User, type IUser } from "../models/User";
 import { RegisterBody, LoginBody, RefreshTokenBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 
@@ -20,9 +19,9 @@ function signTokens(userId: string, role: string) {
   return { accessToken, refreshToken };
 }
 
-function formatUser(user: typeof usersTable.$inferSelect) {
+function formatUser(user: IUser) {
   return {
-    id: user.id,
+    id: user._id.toString(),
     username: user.username,
     email: user.email,
     role: user.role,
@@ -39,24 +38,22 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   const { username, email, password } = parsed.data;
 
-  const existing = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.email, email))
-    .limit(1);
-
-  if (existing.length > 0) {
+  const existing = await User.findOne({ email });
+  if (existing) {
     res.status(400).json({ error: "Email already registered" });
     return;
   }
 
-  const hashedPassword = await bcrypt.hash(password, 12);
-  const [user] = await db
-    .insert(usersTable)
-    .values({ username, email, password: hashedPassword })
-    .returning();
+  const existingUsername = await User.findOne({ username });
+  if (existingUsername) {
+    res.status(400).json({ error: "Username already taken" });
+    return;
+  }
 
-  const tokens = signTokens(user.id, user.role);
+  const hashedPassword = await bcrypt.hash(password, 12);
+  const user = await User.create({ username, email, password: hashedPassword });
+
+  const tokens = signTokens(user._id.toString(), user.role);
   res.status(201).json({ ...tokens, user: formatUser(user) });
 });
 
@@ -69,12 +66,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 
   const { email, password } = parsed.data;
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.email, email))
-    .limit(1);
-
+  const user = await User.findOne({ email });
   if (!user) {
     res.status(401).json({ error: "Invalid credentials" });
     return;
@@ -86,7 +78,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
-  const tokens = signTokens(user.id, user.role);
+  const tokens = signTokens(user._id.toString(), user.role);
   res.json({ ...tokens, user: formatUser(user) });
 });
 
@@ -106,19 +98,12 @@ router.post("/auth/refresh", async (req, res): Promise<void> => {
 
   try {
     const payload = jwt.verify(refreshToken, refreshSecret) as { userId: string; role: string };
-    const tokens = signTokens(payload.userId, payload.role);
-
-    const [user] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, payload.userId))
-      .limit(1);
-
+    const user = await User.findById(payload.userId);
     if (!user) {
       res.status(401).json({ error: "User not found" });
       return;
     }
-
+    const tokens = signTokens(user._id.toString(), user.role);
     res.json({ ...tokens, user: formatUser(user) });
   } catch {
     res.status(401).json({ error: "Invalid or expired refresh token" });
@@ -126,17 +111,11 @@ router.post("/auth/refresh", async (req, res): Promise<void> => {
 });
 
 router.get("/auth/me", requireAuth, async (req, res): Promise<void> => {
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.id, req.user!.userId))
-    .limit(1);
-
+  const user = await User.findById(req.user!.userId);
   if (!user) {
     res.status(401).json({ error: "User not found" });
     return;
   }
-
   res.json(formatUser(user));
 });
 

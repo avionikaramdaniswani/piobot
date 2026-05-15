@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
-import { db, subscriptionsTable } from "@workspace/db";
+import { Subscription, type ISubscription } from "../models/Subscription";
 import {
   ActivateSubscriptionBody,
   GetSubscriptionStatusParams,
@@ -11,27 +10,9 @@ import { requireAuth, requireAdmin } from "../middlewares/auth";
 const router: IRouter = Router();
 
 const PLANS = [
-  {
-    id: "free",
-    name: "Free",
-    features: ["ping", "menu", "info"],
-    durationDays: 36500,
-    price: 0,
-  },
-  {
-    id: "basic",
-    name: "Basic",
-    features: ["ping", "menu", "info", "downloader", "sticker", "tools"],
-    durationDays: 30,
-    price: 4.99,
-  },
-  {
-    id: "premium",
-    name: "Premium",
-    features: ["ping", "menu", "info", "downloader", "sticker", "tools", "all_features", "priority_support"],
-    durationDays: 30,
-    price: 9.99,
-  },
+  { id: "free", name: "Free", features: ["ping", "menu", "info"], durationDays: 36500, price: 0 },
+  { id: "basic", name: "Basic", features: ["ping", "menu", "info", "downloader", "sticker", "tools"], durationDays: 30, price: 4.99 },
+  { id: "premium", name: "Premium", features: ["ping", "menu", "info", "downloader", "sticker", "tools", "all_features", "priority_support"], durationDays: 30, price: 9.99 },
 ];
 
 const PLAN_FEATURES: Record<string, string[]> = {
@@ -40,11 +21,11 @@ const PLAN_FEATURES: Record<string, string[]> = {
   premium: ["ping", "menu", "info", "downloader", "sticker", "tools", "all_features", "priority_support"],
 };
 
-function formatSubscription(sub: typeof subscriptionsTable.$inferSelect) {
+function formatSub(sub: ISubscription) {
   return {
-    id: sub.id,
-    userId: sub.userId,
-    botId: sub.botId,
+    id: sub._id.toString(),
+    userId: sub.userId.toString(),
+    botId: sub.botId.toString(),
     plan: sub.plan,
     startDate: sub.startDate.toISOString(),
     endDate: sub.endDate.toISOString(),
@@ -76,28 +57,22 @@ router.post("/subscriptions/activate", requireAuth, async (req, res): Promise<vo
   const days = durationDays ?? planInfo.durationDays;
   const features = PLAN_FEATURES[plan] ?? [];
 
-  await db
-    .update(subscriptionsTable)
-    .set({ isActive: false })
-    .where(and(eq(subscriptionsTable.userId, userId), eq(subscriptionsTable.botId, botId)));
+  await Subscription.updateMany({ userId, botId, isActive: true }, { isActive: false });
 
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + days);
 
-  const [sub] = await db
-    .insert(subscriptionsTable)
-    .values({
-      userId,
-      botId,
-      plan: plan as "free" | "basic" | "premium",
-      startDate: new Date(),
-      endDate,
-      isActive: true,
-      features,
-    })
-    .returning();
+  const sub = await Subscription.create({
+    userId,
+    botId,
+    plan,
+    startDate: new Date(),
+    endDate,
+    isActive: true,
+    features,
+  });
 
-  res.json(formatSubscription(sub));
+  res.json(formatSub(sub));
 });
 
 router.get("/subscriptions/status/:botId", requireAuth, async (req, res): Promise<void> => {
@@ -108,25 +83,18 @@ router.get("/subscriptions/status/:botId", requireAuth, async (req, res): Promis
   }
 
   const userId = req.user!.userId;
-
-  const [sub] = await db
-    .select()
-    .from(subscriptionsTable)
-    .where(
-      and(
-        eq(subscriptionsTable.botId, params.data.botId),
-        eq(subscriptionsTable.userId, userId),
-        eq(subscriptionsTable.isActive, true),
-      ),
-    )
-    .limit(1);
+  const sub = await Subscription.findOne({
+    botId: params.data.botId,
+    userId,
+    isActive: true,
+  });
 
   if (!sub) {
     res.status(404).json({ error: "No active subscription found" });
     return;
   }
 
-  res.json(formatSubscription(sub));
+  res.json(formatSub(sub));
 });
 
 router.post("/subscriptions/extend", requireAuth, requireAdmin, async (req, res): Promise<void> => {
@@ -137,29 +105,19 @@ router.post("/subscriptions/extend", requireAuth, requireAdmin, async (req, res)
   }
 
   const { subscriptionId, durationDays } = parsed.data;
-
-  const [sub] = await db
-    .select()
-    .from(subscriptionsTable)
-    .where(eq(subscriptionsTable.id, subscriptionId))
-    .limit(1);
-
+  const sub = await Subscription.findById(subscriptionId);
   if (!sub) {
     res.status(404).json({ error: "Subscription not found" });
     return;
   }
 
-  const currentEnd = new Date(sub.endDate);
-  const newEnd = new Date(currentEnd);
+  const newEnd = new Date(sub.endDate);
   newEnd.setDate(newEnd.getDate() + durationDays);
 
-  const [updated] = await db
-    .update(subscriptionsTable)
-    .set({ endDate: newEnd })
-    .where(eq(subscriptionsTable.id, subscriptionId))
-    .returning();
+  sub.endDate = newEnd;
+  await sub.save();
 
-  res.json(formatSubscription(updated));
+  res.json(formatSub(sub));
 });
 
 export default router;
