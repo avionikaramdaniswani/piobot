@@ -11,7 +11,7 @@ function signTokens(userId: string, role: string) {
   const secret = process.env.JWT_SECRET!;
   const refreshSecret = process.env.JWT_REFRESH_SECRET!;
   const accessToken = jwt.sign({ userId, role }, secret, {
-    expiresIn: (process.env.JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"]) ?? "15m",
+    expiresIn: (process.env.JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"]) ?? "1d",
   });
   const refreshToken = jwt.sign({ userId, role }, refreshSecret, {
     expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN as jwt.SignOptions["expiresIn"]) ?? "7d",
