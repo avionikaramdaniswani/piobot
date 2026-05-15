@@ -2,7 +2,6 @@ import makeWASocket, {
   DisconnectReason,
   Browsers,
   WAMessage,
-  downloadMediaMessage,
 } from "ourin-baileys";
 import pino from "pino";
 import { Bot } from "../models/Bot.js";
@@ -68,32 +67,23 @@ async function isGroupAdmin(
 }
 
 async function resolveGroupStatusContent(
-  sock: ReturnType<typeof makeWASocket>,
   msg: WAMessage,
   args: string[],
 ): Promise<{ content: Record<string, unknown>; error?: string }> {
   const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
 
-  if (quoted?.imageMessage || quoted?.videoMessage) {
-    const quotedWAMsg = {
-      key: {
-        remoteJid: msg.key.remoteJid,
-        fromMe: false,
-        id: msg.message?.extendedTextMessage?.contextInfo?.stanzaId,
-        participant: msg.message?.extendedTextMessage?.contextInfo?.participant,
-      },
-      message: quoted,
-    } as WAMessage;
+  if (quoted?.imageMessage) {
+    const mediaUrl = quoted.imageMessage.url;
+    if (!mediaUrl) return { content: {}, error: "no_content" };
+    const caption = quoted.imageMessage.caption || args.join(" ") || "";
+    return { content: { image: { url: mediaUrl }, caption } };
+  }
 
-    const buffer = (await downloadMediaMessage(quotedWAMsg, "buffer", {})) as Buffer;
-
-    if (quoted.imageMessage) {
-      const caption = quoted.imageMessage.caption || args.join(" ") || "";
-      return { content: { image: buffer, caption } };
-    } else {
-      const caption = quoted.videoMessage?.caption || args.join(" ") || "";
-      return { content: { video: buffer, caption } };
-    }
+  if (quoted?.videoMessage) {
+    const mediaUrl = quoted.videoMessage.url;
+    if (!mediaUrl) return { content: {}, error: "no_content" };
+    const caption = quoted.videoMessage.caption || args.join(" ") || "";
+    return { content: { video: { url: mediaUrl }, caption } };
   }
 
   const text = args.join(" ").trim();
@@ -124,7 +114,7 @@ defineCommand(["swgc"], async ({ sock, jid, sender, isGroup, args, prefix, botId
     return;
   }
 
-  const { content, error } = await resolveGroupStatusContent(sock, msg, args);
+  const { content, error } = await resolveGroupStatusContent(msg, args);
 
   if (error === "no_content") {
     await sock.sendMessage(jid, {
@@ -133,8 +123,15 @@ defineCommand(["swgc"], async ({ sock, jid, sender, isGroup, args, prefix, botId
     return;
   }
 
-  await sock.sendMessage("status@broadcast", content as any, { statusJidList: [jid] });
-  await sock.sendMessage(jid, { text: `✅ Status grup berhasil dikirim!` });
+  try {
+    await sock.sendMessage("status@broadcast", content as any, { statusJidList: [jid] });
+    await sock.sendMessage(jid, { text: `✅ Status grup berhasil dikirim!` });
+  } catch (err: any) {
+    logger.error({ err, botId }, "swgc: gagal kirim status grup");
+    await sock.sendMessage(jid, {
+      text: `❌ Gagal mengirim status grup.\n\n${err?.message ?? "Unknown error"}`,
+    });
+  }
 });
 
 // .swgcbyid — kirim status ke grup by ID (bisa dari chat pribadi)
@@ -157,7 +154,7 @@ defineCommand(["swgcbyid"], async ({ sock, jid, sender, args, prefix, botId, msg
 
   const targetJid = rawId.endsWith("@g.us") ? rawId : `${rawId}@g.us`;
   const contentArgs = args.slice(1);
-  const { content, error } = await resolveGroupStatusContent(sock, msg, contentArgs);
+  const { content, error } = await resolveGroupStatusContent(msg, contentArgs);
 
   if (error === "no_content") {
     await sock.sendMessage(jid, {
@@ -166,8 +163,15 @@ defineCommand(["swgcbyid"], async ({ sock, jid, sender, args, prefix, botId, msg
     return;
   }
 
-  await sock.sendMessage("status@broadcast", content as any, { statusJidList: [targetJid] });
-  await sock.sendMessage(jid, { text: `✅ Status berhasil dikirim ke grup \`${targetJid}\`!` });
+  try {
+    await sock.sendMessage("status@broadcast", content as any, { statusJidList: [targetJid] });
+    await sock.sendMessage(jid, { text: `✅ Status berhasil dikirim ke grup \`${targetJid}\`!` });
+  } catch (err: any) {
+    logger.error({ err, botId }, "swgcbyid: gagal kirim status grup");
+    await sock.sendMessage(jid, {
+      text: `❌ Gagal mengirim status grup.\n\n${err?.message ?? "Unknown error"}`,
+    });
+  }
 });
 
 // .ping / .p
