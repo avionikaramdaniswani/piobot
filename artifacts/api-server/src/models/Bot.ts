@@ -1,5 +1,13 @@
 import mongoose from "mongoose";
 
+const ownerSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    phoneNumber: { type: String, required: true, trim: true },
+  },
+  { _id: false },
+);
+
 const botSchema = new mongoose.Schema(
   {
     ownerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -11,11 +19,18 @@ const botSchema = new mongoose.Schema(
       default: "inactive",
     },
     prefix: { type: String, default: "." },
+    prefixes: { type: [String], default: [] },
+    owners: { type: [ownerSchema], default: [] },
     connectedAt: { type: Date, default: null },
     commands: { type: Map, of: Boolean, default: {} },
   },
   { timestamps: true },
 );
+
+export interface IBotOwner {
+  name: string;
+  phoneNumber: string;
+}
 
 export interface IBot extends mongoose.Document {
   ownerId: mongoose.Types.ObjectId;
@@ -23,6 +38,8 @@ export interface IBot extends mongoose.Document {
   phoneNumber: string | null;
   status: "inactive" | "connecting" | "connected" | "disconnected";
   prefix: string;
+  prefixes: string[];
+  owners: IBotOwner[];
   connectedAt: Date | null;
   createdAt: Date;
   commands: Map<string, boolean>;

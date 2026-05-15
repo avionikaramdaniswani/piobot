@@ -39,6 +39,7 @@ function formatSub(sub: ISubscription | null | undefined) {
 }
 
 function formatBot(bot: IBot, subscription?: ISubscription | null) {
+  const prefixes = bot.prefixes && bot.prefixes.length > 0 ? bot.prefixes : [bot.prefix];
   return {
     id: bot._id.toString(),
     ownerId: bot.ownerId.toString(),
@@ -46,6 +47,8 @@ function formatBot(bot: IBot, subscription?: ISubscription | null) {
     phoneNumber: bot.phoneNumber ?? null,
     status: bot.status,
     prefix: bot.prefix,
+    prefixes,
+    owners: bot.owners ?? [],
     connectedAt: bot.connectedAt ? bot.connectedAt.toISOString() : null,
     createdAt: bot.createdAt.toISOString(),
     ...(subscription !== undefined ? { subscription: formatSub(subscription) } : {}),
@@ -131,9 +134,26 @@ router.patch("/bots/:id", requireAuth, async (req, res): Promise<void> => {
     res.status(404).json({ error: "Bot not found" });
     return;
   }
-  const update: Partial<{ name: string; prefix: string }> = {};
+  const update: Record<string, any> = {};
   if (req.body.name && typeof req.body.name === "string") update.name = req.body.name.trim();
   if (req.body.prefix && typeof req.body.prefix === "string") update.prefix = req.body.prefix.trim();
+  if (Array.isArray(req.body.prefixes)) {
+    const clean = req.body.prefixes
+      .map((p: any) => (typeof p === "string" ? p.trim() : ""))
+      .filter((p: string) => p.length > 0 && p.length <= 5);
+    if (clean.length > 0) {
+      update.prefixes = clean;
+      update.prefix = clean[0];
+    }
+  }
+  if (Array.isArray(req.body.owners)) {
+    const clean = req.body.owners
+      .filter((o: any) => o && typeof o.name === "string" && typeof o.phoneNumber === "string")
+      .map((o: any) => ({ name: o.name.trim(), phoneNumber: o.phoneNumber.trim() }))
+      .filter((o: any) => o.name && o.phoneNumber)
+      .slice(0, 3);
+    update.owners = clean;
+  }
   const updated = await Bot.findByIdAndUpdate(bot._id, update, { new: true });
   const sub = await Subscription.findOne({ botId: bot._id, isActive: true });
   res.json(formatBot(updated!, sub ?? null));
