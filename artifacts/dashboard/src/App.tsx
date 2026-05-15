@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,13 +9,10 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { DashboardLayout } from "@/components/layout";
 
-// Pages
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
 import Dashboard from "@/pages/dashboard";
-import BotsList from "@/pages/bots/index";
-import BotDetail from "@/pages/bots/[id]";
 import Subscription from "@/pages/subscription";
 
 const queryClient = new QueryClient({
@@ -42,35 +39,26 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
-      
+
       <Route path="/">
-        <ProtectedLayout>
-          <Dashboard />
-        </ProtectedLayout>
+        <ProtectedLayout><Dashboard /></ProtectedLayout>
       </Route>
       <Route path="/dashboard">
-        <ProtectedLayout>
-          <Dashboard />
-        </ProtectedLayout>
+        <ProtectedLayout><Dashboard /></ProtectedLayout>
       </Route>
+
+      {/* Redirect old bot routes to dashboard */}
       <Route path="/bots">
-        <ProtectedLayout>
-          <BotsList />
-        </ProtectedLayout>
+        <Redirect to="/dashboard" />
       </Route>
       <Route path="/bots/:id">
-        {params => (
-          <ProtectedLayout>
-            <BotDetail id={params.id} />
-          </ProtectedLayout>
-        )}
+        <Redirect to="/dashboard" />
       </Route>
+
       <Route path="/subscription">
-        <ProtectedLayout>
-          <Subscription />
-        </ProtectedLayout>
+        <ProtectedLayout><Subscription /></ProtectedLayout>
       </Route>
-      
+
       <Route component={NotFound} />
     </Switch>
   );
