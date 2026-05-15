@@ -12,6 +12,12 @@ import {
   RequestPairingBody,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
+import {
+  startWhatsAppBot,
+  stopWhatsAppBot,
+  getBotQRCode,
+  requestBotPairingCode,
+} from "../lib/whatsapp";
 
 const router: IRouter = Router();
 
@@ -45,7 +51,6 @@ function formatBot(bot: IBot, subscription?: ISubscription | null) {
 router.get("/bots/stats", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.userId;
   const bots = await Bot.find({ ownerId: userId });
-
   res.json({
     total: bots.length,
     connected: bots.filter((b) => b.status === "connected").length,
@@ -58,11 +63,9 @@ router.get("/bots/stats", requireAuth, async (req, res): Promise<void> => {
 router.get("/bots", requireAuth, async (req, res): Promise<void> => {
   const userId = req.user!.userId;
   const bots = await Bot.find({ ownerId: userId }).sort({ createdAt: -1 });
-
   const botIds = bots.map((b) => b._id);
   const subs = await Subscription.find({ userId, botId: { $in: botIds }, isActive: true });
   const subMap = new Map(subs.map((s) => [s.botId.toString(), s]));
-
   res.json(bots.map((b) => formatBot(b, subMap.get(b._id.toString()) ?? null)));
 });
 
@@ -72,20 +75,16 @@ router.post("/bots", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-
   const userId = req.user!.userId;
   const { name, phoneNumber, prefix } = parsed.data;
-
   const bot = await Bot.create({
     ownerId: userId,
     name,
     phoneNumber: phoneNumber ?? null,
     prefix: prefix ?? ".",
   });
-
   const endDate = new Date();
   endDate.setFullYear(endDate.getFullYear() + 99);
-
   await Subscription.create({
     userId,
     botId: bot._id,
@@ -95,7 +94,6 @@ router.post("/bots", requireAuth, async (req, res): Promise<void> => {
     isActive: true,
     features: ["ping", "menu", "info"],
   });
-
   res.status(201).json(formatBot(bot));
 });
 
@@ -105,14 +103,12 @@ router.get("/bots/:id", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-
   const userId = req.user!.userId;
   const bot = await Bot.findOne({ _id: params.data.id, ownerId: userId });
   if (!bot) {
     res.status(404).json({ error: "Bot not found" });
     return;
   }
-
   const sub = await Subscription.findOne({ botId: bot._id, isActive: true });
   res.json(formatBot(bot, sub ?? null));
 });
@@ -123,14 +119,13 @@ router.delete("/bots/:id", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-
   const userId = req.user!.userId;
   const bot = await Bot.findOneAndDelete({ _id: params.data.id, ownerId: userId });
   if (!bot) {
     res.status(404).json({ error: "Bot not found" });
     return;
   }
-
+  await stopWhatsAppBot(params.data.id);
   await Subscription.deleteMany({ botId: params.data.id });
   res.json({ success: true, message: "Bot deleted" });
 });
@@ -141,20 +136,20 @@ router.post("/bots/:id/start", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-
   const userId = req.user!.userId;
-  const bot = await Bot.findOneAndUpdate(
-    { _id: params.data.id, ownerId: userId },
-    { status: "connecting" },
-    { new: true },
-  );
-
+  const bot = await Bot.findOne({ _id: params.data.id, ownerId: userId });
   if (!bot) {
     res.status(404).json({ error: "Bot not found" });
     return;
   }
+  await Bot.findByIdAndUpdate(bot._id, { status: "connecting" });
 
-  res.json(formatBot(bot));
+  startWhatsAppBot(params.data.id).catch((err) => {
+    req.log.error({ err, botId: params.data.id }, "Failed to start WhatsApp bot");
+  });
+
+  const updated = await Bot.findById(bot._id);
+  res.json(formatBot(updated!));
 });
 
 router.post("/bots/:id/stop", requireAuth, async (req, res): Promise<void> => {
@@ -163,20 +158,15 @@ router.post("/bots/:id/stop", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-
   const userId = req.user!.userId;
-  const bot = await Bot.findOneAndUpdate(
-    { _id: params.data.id, ownerId: userId },
-    { status: "disconnected" },
-    { new: true },
-  );
-
+  const bot = await Bot.findOne({ _id: params.data.id, ownerId: userId });
   if (!bot) {
     res.status(404).json({ error: "Bot not found" });
     return;
   }
-
-  res.json(formatBot(bot));
+  await stopWhatsAppBot(params.data.id);
+  const updated = await Bot.findById(bot._id);
+  res.json(formatBot(updated!));
 });
 
 router.get("/bots/:id/status", requireAuth, async (req, res): Promise<void> => {
@@ -185,19 +175,28 @@ router.get("/bots/:id/status", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-
   const userId = req.user!.userId;
   const bot = await Bot.findOne({ _id: params.data.id, ownerId: userId });
   if (!bot) {
     res.status(404).json({ error: "Bot not found" });
     return;
   }
-
   res.json({
     id: bot._id.toString(),
     status: bot.status,
     phoneNumber: bot.phoneNumber ?? null,
   });
+});
+
+router.get("/bots/:id/qrcode", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.userId;
+  const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
+  if (!bot) {
+    res.status(404).json({ error: "Bot not found" });
+    return;
+  }
+  const qrCode = getBotQRCode(String(req.params.id));
+  res.json({ qrCode });
 });
 
 router.post("/bots/:id/pairing", requireAuth, async (req, res): Promise<void> => {
@@ -206,29 +205,24 @@ router.post("/bots/:id/pairing", requireAuth, async (req, res): Promise<void> =>
     res.status(400).json({ error: params.error.message });
     return;
   }
-
   const body = RequestPairingBody.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: body.error.message });
     return;
   }
-
   const userId = req.user!.userId;
   const bot = await Bot.findOne({ _id: params.data.id, ownerId: userId });
   if (!bot) {
     res.status(404).json({ error: "Bot not found" });
     return;
   }
-
-  await Bot.findByIdAndUpdate(bot._id, {
-    phoneNumber: body.data.phoneNumber,
-    status: "connecting",
-  });
-
-  const digits = Math.floor(10000000 + Math.random() * 90000000).toString();
-  const code = `${digits.slice(0, 4)}-${digits.slice(4)}`;
-
-  res.json({ code });
+  try {
+    const code = await requestBotPairingCode(params.data.id, body.data.phoneNumber);
+    await Bot.findByIdAndUpdate(bot._id, { phoneNumber: body.data.phoneNumber });
+    res.json({ code });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Gagal membuat kode pairing" });
+  }
 });
 
 export default router;

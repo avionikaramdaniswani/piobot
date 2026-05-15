@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { 
   useGetBot, 
@@ -18,7 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Terminal, Power, Square, Trash2, Smartphone, 
-  KeyRound, Shield, Clock, ArrowLeft, QrCode, RefreshCw
+  KeyRound, Shield, Clock, ArrowLeft, QrCode, RefreshCw, Loader2
 } from "lucide-react";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,12 +31,43 @@ const statusLabel: Record<string, string> = {
   inactive: "Nonaktif",
 };
 
-function generateSimulatedQR(botId: string, seed: number): string {
-  const base = `${botId}-${seed}`;
-  const encoded = btoa(base).replace(/[^a-zA-Z0-9]/g, "").slice(0, 60);
-  const part2 = btoa(`s2-${seed}`).replace(/[^a-zA-Z0-9]/g, "").slice(0, 20);
-  const part3 = btoa(`s3-${seed}`).replace(/[^a-zA-Z0-9]/g, "").slice(0, 20);
-  return `1@${encoded},${part2},${part3}`;
+function useQRCode(botId: string, enabled: boolean) {
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setQrCode(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchQR() {
+      setLoading(true);
+      try {
+        const token = localStorage.getItem("accessToken");
+        const res = await fetch(`/api/bots/${botId}/qrcode`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setQrCode(data.qrCode ?? null);
+      } catch {
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchQR();
+    const interval = setInterval(fetchQR, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [botId, enabled]);
+
+  return { qrCode, loading };
 }
 
 export default function BotDetail({ id }: { id: string }) {
@@ -45,7 +76,7 @@ export default function BotDetail({ id }: { id: string }) {
   const queryClient = useQueryClient();
 
   const { data: bot, isLoading, error } = useGetBot(id, {
-    query: { enabled: !!id, queryKey: getGetBotQueryKey(id), refetchInterval: 5000 }
+    query: { enabled: !!id, queryKey: getGetBotQueryKey(id), refetchInterval: 4000 }
   });
 
   const startMutation = useStartBot();
@@ -55,34 +86,13 @@ export default function BotDetail({ id }: { id: string }) {
 
   const [phoneNumber, setPhoneNumber] = useState("");
   const [pairingCode, setPairingCode] = useState("");
-  const [qrSeed, setQrSeed] = useState(1);
-  const [qrCountdown, setQrCountdown] = useState(30);
 
-  const refreshQR = useCallback(() => {
-    setQrSeed(s => s + 1);
-    setQrCountdown(30);
-  }, []);
+  const isConnecting = bot?.status === "connecting";
+  const { qrCode, loading: qrLoading } = useQRCode(id, isConnecting);
 
   useEffect(() => {
-    if (bot?.status !== "connecting") return;
-    setPairingCode("");
-    setQrSeed(1);
-    setQrCountdown(30);
-  }, [bot?.status]);
-
-  useEffect(() => {
-    if (bot?.status !== "connecting") return;
-    const interval = setInterval(() => {
-      setQrCountdown(c => {
-        if (c <= 1) {
-          setQrSeed(s => s + 1);
-          return 30;
-        }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [bot?.status]);
+    if (!isConnecting) setPairingCode("");
+  }, [isConnecting]);
 
   if (error) {
     return (
@@ -97,7 +107,7 @@ export default function BotDetail({ id }: { id: string }) {
     try {
       await startMutation.mutateAsync({ id });
       queryClient.invalidateQueries({ queryKey: getGetBotQueryKey(id) });
-      toast({ title: "Bot Dinyalakan", description: "Proses koneksi dimulai." });
+      toast({ title: "Bot Dinyalakan", description: "Menunggu QR code WhatsApp..." });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Gagal", description: err.message });
     }
@@ -143,9 +153,7 @@ export default function BotDetail({ id }: { id: string }) {
   }
 
   const isConnected = bot.status === "connected";
-  const isConnecting = bot.status === "connecting";
   const isOffline = bot.status === "disconnected" || bot.status === "inactive";
-  const qrData = useMemo(() => generateSimulatedQR(id, qrSeed), [id, qrSeed]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -268,27 +276,30 @@ export default function BotDetail({ id }: { id: string }) {
 
                 <TabsContent value="qr" className="space-y-4">
                   <div className="flex flex-col items-center gap-4">
-                    <div className="bg-white p-4 rounded-xl shadow-inner">
-                      <QRCodeSVG
-                        value={qrData}
-                        size={200}
-                        bgColor="#ffffff"
-                        fgColor="#111827"
-                        level="M"
-                      />
+                    <div className="bg-white p-4 rounded-xl shadow-inner min-h-[216px] flex items-center justify-center">
+                      {qrCode ? (
+                        <QRCodeSVG
+                          value={qrCode}
+                          size={200}
+                          bgColor="#ffffff"
+                          fgColor="#111827"
+                          level="M"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center gap-3 text-gray-400">
+                          <Loader2 className="w-10 h-10 animate-spin" />
+                          <p className="text-sm">Membuat QR code...</p>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-center space-y-2 w-full">
-                      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+
+                    {qrCode && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <div className="w-2 h-2 bg-yellow-500 rounded-full animate-ping" />
-                        QR code kedaluwarsa dalam{" "}
-                        <span className={`font-bold tabular-nums ${qrCountdown <= 10 ? "text-destructive" : "text-foreground"}`}>
-                          {qrCountdown}s
-                        </span>
+                        QR code diperbarui otomatis setiap 3 detik
                       </div>
-                      <Button variant="outline" size="sm" onClick={refreshQR} className="gap-2">
-                        <RefreshCw className="w-3 h-3" /> Perbarui QR
-                      </Button>
-                    </div>
+                    )}
+
                     <ol className="text-xs text-muted-foreground space-y-1 text-left w-full border border-border rounded-lg p-3 bg-secondary/30">
                       <li>1. Buka WhatsApp di HP Anda</li>
                       <li>2. Ketuk <strong>Perangkat Tertaut</strong></li>

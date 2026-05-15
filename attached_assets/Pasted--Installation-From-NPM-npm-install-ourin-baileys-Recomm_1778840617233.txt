@@ -1,0 +1,252 @@
+📦 Installation
+From NPM
+npm install ourin-baileys
+Recommended companion packages for examples in this README:
+
+npm install pino qrcode-terminal
+Using Alias (Recommended for Ourin-MD Bots)
+Add to package.json:
+
+{
+  "dependencies": {
+    "ourin": "npm:ourin-baileys@latest"
+  }
+}
+Then run:
+
+npm install
+[!TIP] Using the alias ourin allows you to import ourin from 'ourin' without changing existing code.
+
+[!NOTE] Peer dependencies such as sharp, jimp, audio-decode, and link-preview-js are optional. Install only what your bot features need.
+
+🛠️ Quick Start
+1. Project Setup
+mkdir my-bot && cd my-bot
+npm init -y
+Ensure package.json has "type": "module":
+
+{
+  "name": "my-bot",
+  "type": "module",
+  "dependencies": {
+    "ourin": "npm:ourin-baileys@latest"
+  }
+}
+[!IMPORTANT] Required: "type": "module" — ourin-baileys is ESM-only. Without this, imports will fail.
+
+2. Install Dependencies
+npm install ourin-baileys pino qrcode-terminal
+3. Create index.js
+import makeWASocket, {
+  useMultiFileAuthState,
+  DisconnectReason,
+  Browsers,
+} from "ourin-baileys";
+import pino from "pino";
+import qrcode from "qrcode-terminal";
+
+const logger = pino({ level: "silent" });
+
+async function startBot() {
+  const { state, saveCreds } = await useMultiFileAuthState("./session");
+
+  const sock = makeWASocket({
+    auth: state,
+    logger,
+    browser: Browsers.ubuntu("Chrome"),
+    syncFullHistory: false,
+  });
+
+  sock.ev.on("creds.update", saveCreds);
+
+  sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
+    if (qr) {
+      qrcode.generate(qr, { small: true });
+    }
+
+    if (connection === "close") {
+      const shouldReconnect =
+        lastDisconnect?.error?.output?.statusCode !==
+        DisconnectReason.loggedOut;
+      if (shouldReconnect) startBot();
+    }
+    if (connection === "open") console.log("Connected!");
+  });
+
+  sock.ev.on("messages.upsert", async ({ messages }) => {
+    const msg = messages[0];
+    if (!msg?.message || msg.key.fromMe) return;
+
+    const text =
+      msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+
+    if (text === ".ping") {
+      await sock.sendMessage(msg.key.remoteJid, { text: "Pong!" });
+    }
+  });
+}
+
+startBot();
+4. Run
+node index.js
+Scan the QR code, wait until the socket reaches connection: "open", then send .ping to test.
+
+5. Pairing Code Example
+If you prefer pairing code over QR:
+
+const sock = makeWASocket({
+  auth: state,
+  logger,
+  browser: Browsers.windows("Chrome"),
+});
+
+sock.ev.on("connection.update", async ({ connection }) => {
+  if (connection === "connecting") {
+    const code = await sock.requestPairingCode("6281234567890");
+    console.log("Pairing code:", code);
+  }
+});
+You can also provide your own custom pairing code:
+
+const code = await sock.requestPairingCode("6281234567890", "A1B2C3D4");
+console.log("Custom pairing code:", code);
+Custom pairing codes must be exactly 8 characters.
+
+[!WARNING] printQRInTerminal still exists in the type surface for compatibility, but it is deprecated in the current build. Prefer handling the qr value from connection.update yourself.
+
+🏗️ Architecture
+Socket Layer Chain
+Each socket layer extends the previous via composition, adding functionality from bottom to top:
+
+makeSocket          → WebSocket + Noise protocol + pre-key management
+  makeChatsSocket   → App state sync + chat modifications + profile
+    makeGroupsSocket → Group CRUD + participant management
+      makeMessagesSendSocket → Message sending + rich messages + relay
+        makeMessagesRecvSocket → Message receiving + decryption + notifications
+          makeBusinessSocket   → Product catalog + business profile
+            makeCommunitiesSocket → Community CRUD + sub-groups
+              makeNewsletterSocket → Newsletter follow/unfollow/metadata
+                makeWASocket      ← TOP LEVEL EXPORT
+Key Modules
+Module	Path	Description
+Socket	lib/Socket/	Connection, messaging, groups, newsletter, business, communities
+Signal	lib/Signal/	Signal protocol: 1:1 encryption, group SenderKey, LID mapping
+WABinary	lib/WABinary/	Binary node encoding/decoding, JID utilities
+Utils	lib/Utils/	Crypto, auth state, noise handler, rich messages, media
+WAProto	WAProto/	Compiled protobuf encode/decode
+WAUSync	lib/WAUSync/	User sync protocol (contact, device, LID)
+WAM	lib/WAM/	WhatsApp analytics binary encoding
+Types	lib/Types/	Full TypeScript type definitions
+Build Repo Layout
+This repository does not currently expose a src/ directory in the checked-in package tree.
+
+That means:
+
+Documentation should reference lib/ as the public implementation
+API discovery is best done through:
+lib/index.js
+lib/index.d.ts
+lib/Socket/*.d.ts
+lib/Utils/*.d.ts
+Consumers should treat this repo as a ready-to-install runtime artifact, not the authoring source tree
+Connection Flow
+WebSocket connect → Noise XX handshake (Curve25519 + AES-256-GCM)
+QR code or Pairing Code authentication
+CB:success → upload pre-keys → send passive IQ → emit connection: 'open'
+Store own LID↔PN mapping, migrate own session
+Buffer events → process offline notifications → flush → receivedPendingNotifications: true
+📡 Socket API Reference
+Connection & Authentication
+const sock = makeWASocket({
+  auth: state, // AuthenticationState from useMultiFileAuthState
+  logger, // pino logger instance
+  browser: Browsers.ubuntu("Chrome"), // Browser identity
+  version: [2, 3000, 1035194821], // WA version
+  connectTimeoutMs: 20_000, // Connection timeout
+  defaultQueryTimeoutMs: 60_000, // Query timeout
+  retryRequestDelayMs: 250, // Retry delay
+  maxMsgRetryCount: 5, // Max message retry count
+  enableRecentMessageCache: true, // Enable message retry manager
+  enableAutoSessionRecreation: true,
+  syncFullHistory: false, // Sync full chat history
+  shouldIgnoreJid: (jid) => false, // Filter specific JIDs
+  qrTimeout: 60_000,
+  generateHighQualityLinkPreview: false,
+});
+Pairing Code Authentication:
+
+const sock = makeWASocket({
+  auth: state,
+  logger,
+  browser: Browsers.windows("Chrome"),
+});
+
+sock.ev.on("connection.update", async ({ connection, qr, isNewLogin }) => {
+  if (qr) {
+    // QR code available (fallback)
+  }
+});
+
+// Request pairing code
+const code = await sock.requestPairingCode("6281234567890");
+console.log("Pairing code:", code); // e.g. "A1B2-C3D4"
+Authentication State:
+
+import { useMultiFileAuthState } from "ourin-baileys";
+
+const { state, saveCreds } = await useMultiFileAuthState("./session");
+// state.creds → credentials (me, platform, noise keys, etc.)
+// state.keys → SignalKeyStore (pre-keys, sessions, identity keys, etc.)
+// saveCreds() → persist credentials to disk
+Custom Data Store / Memory Store Pattern:
+
+import {
+  BufferJSON,
+  initAuthCreds,
+  makeCacheableSignalKeyStore,
+} from "ourin-baileys";
+
+const credsStore = new Map();
+const keyStoreData = new Map();
+
+const creds = credsStore.get("creds") || initAuthCreds();
+
+const keys = makeCacheableSignalKeyStore({
+  get: async (type, ids) => {
+    const data = {};
+    for (const id of ids) {
+      data[id] = keyStoreData.get(`${type}:${id}`);
+    }
+    return data;
+  },
+  set: async (data) => {
+    for (const category in data) {
+      for (const id in data[category]) {
+        const value = data[category][id];
+        const key = `${category}:${id}`;
+        if (value == null) keyStoreData.delete(key);
+        else keyStoreData.set(key, value);
+      }
+    }
+  },
+});
+
+const state = { creds, keys };
+
+const saveCreds = async () => {
+  credsStore.set(
+    "creds",
+    JSON.parse(
+      JSON.stringify(state.creds, BufferJSON.replacer),
+      BufferJSON.reviver,
+    ),
+  );
+};
+This package does not currently ship a built-in makeInMemoryStore() helper.
+
+Use these patterns instead:
+
+useMultiFileAuthState() for bot/local usage
+initAuthCreds() + custom SignalKeyStore for DB/Redis/in-memory persistence
+makeCacheableSignalKeyStore() when you want faster repeated key access with caching
+[!WARNING] useMultiFileAuthState() is convenient for bots and local testing, but the package itself warns against using it as your long-term production persistence layer. For production, write your own SQL/NoSQL-backed auth store.
