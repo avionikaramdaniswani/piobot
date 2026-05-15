@@ -20,6 +20,7 @@ import {
   requestBotPairingCode,
 } from "../lib/whatsapp";
 import { botLogEmitter, type BotLogEvent } from "../lib/botLogger";
+import { COMMAND_REGISTRY } from "../lib/commandRegistry";
 
 const router: IRouter = Router();
 
@@ -260,6 +261,59 @@ router.post("/bots/:id/pairing", requireAuth, async (req, res): Promise<void> =>
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Gagal membuat kode pairing" });
   }
+});
+
+// ── GET /bots/:id/commands — list commands with enabled state ──────────────────
+router.get("/bots/:id/commands", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.userId;
+  const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
+  if (!bot) {
+    res.status(404).json({ error: "Bot not found" });
+    return;
+  }
+
+  const commandsMap: Record<string, boolean> = {};
+  bot.commands.forEach((val, key) => { commandsMap[key] = val; });
+
+  const result = COMMAND_REGISTRY.map((cmd) => ({
+    key: cmd.key,
+    aliases: cmd.aliases,
+    description: cmd.description,
+    usage: cmd.usage,
+    category: cmd.category,
+    enabled: commandsMap[cmd.key] !== false,
+  }));
+
+  res.json({ commands: result });
+});
+
+// ── PATCH /bots/:id/commands/:key — toggle command enabled state ──────────────
+router.patch("/bots/:id/commands/:key", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.userId;
+  const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
+  if (!bot) {
+    res.status(404).json({ error: "Bot not found" });
+    return;
+  }
+
+  const cmdKey = req.params.key;
+  const validKey = COMMAND_REGISTRY.find((c) => c.key === cmdKey);
+  if (!validKey) {
+    res.status(400).json({ error: "Command tidak dikenal" });
+    return;
+  }
+
+  const { enabled } = req.body as { enabled: boolean };
+  if (typeof enabled !== "boolean") {
+    res.status(400).json({ error: "Field 'enabled' harus boolean" });
+    return;
+  }
+
+  bot.commands.set(cmdKey, enabled);
+  bot.markModified("commands");
+  await bot.save();
+
+  res.json({ key: cmdKey, enabled });
 });
 
 // ── SSE log stream ─────────────────────────────────────────────────────────────

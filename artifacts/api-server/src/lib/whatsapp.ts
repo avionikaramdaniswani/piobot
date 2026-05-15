@@ -8,6 +8,7 @@ import { Bot } from "../models/Bot.js";
 import { logger } from "./logger.js";
 import { useMongoAuthState, deleteMongoAuthState } from "./mongoAuthState.js";
 import { emitBotLog } from "./botLogger.js";
+import { keyForAlias } from "./commandRegistry.js";
 
 const activeSockets = new Map<string, ReturnType<typeof makeWASocket>>();
 const qrCodes = new Map<string, string>();
@@ -181,6 +182,25 @@ async function handleMessage(
         text: `❓ Perintah *${prefix}${commandName}* tidak dikenal.\n\nKetik *${prefix}menu* untuk melihat daftar perintah.`,
       });
       return;
+    }
+
+    // Check if this command is disabled by the owner
+    const cmdKey = keyForAlias(commandName);
+    if (cmdKey) {
+      const botDoc = await Bot.findById(botId).lean();
+      const commandsMap = (botDoc as any)?.commands as Map<string, boolean> | Record<string, boolean> | undefined;
+      let enabled = true;
+      if (commandsMap) {
+        const val = commandsMap instanceof Map ? commandsMap.get(cmdKey) : (commandsMap as Record<string, boolean>)[cmdKey];
+        if (val === false) enabled = false;
+      }
+      if (!enabled) {
+        emitBotLog(botId, `Perintah ${prefix}${commandName} dinonaktifkan oleh owner`, "warn");
+        await sock.sendMessage(jid, {
+          text: `🚫 Perintah *${prefix}${commandName}* sedang dinonaktifkan.`,
+        });
+        return;
+      }
     }
 
     await sock.sendPresenceUpdate("composing", jid);

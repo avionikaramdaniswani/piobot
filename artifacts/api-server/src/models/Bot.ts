@@ -12,6 +12,7 @@ const botSchema = new mongoose.Schema(
     },
     prefix: { type: String, default: "." },
     connectedAt: { type: Date, default: null },
+    commands: { type: Map, of: Boolean, default: {} },
   },
   { timestamps: true },
 );
@@ -24,6 +25,7 @@ export interface IBot extends mongoose.Document {
   prefix: string;
   connectedAt: Date | null;
   createdAt: Date;
+  commands: Map<string, boolean>;
 }
 
 export const Bot = mongoose.model<IBot>("Bot", botSchema);
