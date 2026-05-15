@@ -79,7 +79,7 @@ router.post("/bots", requireAuth, async (req, res): Promise<void> => {
 
   const existingBot = await Bot.findOne({ ownerId: userId });
   if (existingBot) {
-    res.status(409).json({ error: "Setiap akun hanya dapat memiliki 1 bot. Hapus bot yang ada terlebih dahulu untuk membuat yang baru." });
+    res.status(409).json({ error: "Setiap akun hanya dapat memiliki 1 bot." });
     return;
   }
 
@@ -120,6 +120,21 @@ router.get("/bots/:id", requireAuth, async (req, res): Promise<void> => {
   res.json(formatBot(bot, sub ?? null));
 });
 
+router.patch("/bots/:id", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.userId;
+  const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
+  if (!bot) {
+    res.status(404).json({ error: "Bot not found" });
+    return;
+  }
+  const update: Partial<{ name: string; prefix: string }> = {};
+  if (req.body.name && typeof req.body.name === "string") update.name = req.body.name.trim();
+  if (req.body.prefix && typeof req.body.prefix === "string") update.prefix = req.body.prefix.trim();
+  const updated = await Bot.findByIdAndUpdate(bot._id, update, { new: true });
+  const sub = await Subscription.findOne({ botId: bot._id, isActive: true });
+  res.json(formatBot(updated!, sub ?? null));
+});
+
 router.delete("/bots/:id", requireAuth, async (req, res): Promise<void> => {
   const params = DeleteBotParams.safeParse(req.params);
   if (!params.success) {
@@ -134,7 +149,19 @@ router.delete("/bots/:id", requireAuth, async (req, res): Promise<void> => {
   }
   await stopWhatsAppBot(params.data.id);
   await Subscription.deleteMany({ botId: params.data.id });
-  res.json({ success: true, message: "Bot deleted" });
+  res.json({ success: true });
+});
+
+router.delete("/bots/:id/session", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.userId;
+  const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
+  if (!bot) {
+    res.status(404).json({ error: "Bot not found" });
+    return;
+  }
+  await stopWhatsAppBot(req.params.id);
+  await Bot.findByIdAndUpdate(bot._id, { phoneNumber: null, status: "inactive" });
+  res.json({ success: true });
 });
 
 router.post("/bots/:id/start", requireAuth, async (req, res): Promise<void> => {

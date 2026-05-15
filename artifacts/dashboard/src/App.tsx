@@ -14,6 +14,7 @@ import Login from "@/pages/login";
 import Register from "@/pages/register";
 import Dashboard from "@/pages/dashboard";
 import Subscription from "@/pages/subscription";
+import ConfigPage from "@/pages/config";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,17 +47,19 @@ function Router() {
       <Route path="/dashboard">
         <ProtectedLayout><Dashboard /></ProtectedLayout>
       </Route>
+      <Route path="/config">
+        <ProtectedLayout><ConfigPage /></ProtectedLayout>
+      </Route>
+      <Route path="/subscription">
+        <ProtectedLayout><Subscription /></ProtectedLayout>
+      </Route>
 
-      {/* Redirect old bot routes to dashboard */}
+      {/* Legacy redirects */}
       <Route path="/bots">
         <Redirect to="/dashboard" />
       </Route>
       <Route path="/bots/:id">
         <Redirect to="/dashboard" />
-      </Route>
-
-      <Route path="/subscription">
-        <ProtectedLayout><Subscription /></ProtectedLayout>
       </Route>
 
       <Route component={NotFound} />

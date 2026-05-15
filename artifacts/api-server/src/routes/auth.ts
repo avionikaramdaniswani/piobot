@@ -2,6 +2,8 @@ import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { User, type IUser } from "../models/User";
+import { Bot } from "../models/Bot";
+import { Subscription } from "../models/Subscription";
 import { RegisterBody, LoginBody, RefreshTokenBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 
@@ -40,18 +42,36 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   const existing = await User.findOne({ email });
   if (existing) {
-    res.status(400).json({ error: "Email already registered" });
+    res.status(400).json({ error: "Email sudah terdaftar" });
     return;
   }
 
   const existingUsername = await User.findOne({ username });
   if (existingUsername) {
-    res.status(400).json({ error: "Username already taken" });
+    res.status(400).json({ error: "Username sudah digunakan" });
     return;
   }
 
   const hashedPassword = await bcrypt.hash(password, 12);
   const user = await User.create({ username, email, password: hashedPassword });
+
+  const bot = await Bot.create({
+    ownerId: user._id,
+    name: username,
+    prefix: ".",
+  });
+
+  const endDate = new Date();
+  endDate.setFullYear(endDate.getFullYear() + 99);
+  await Subscription.create({
+    userId: user._id,
+    botId: bot._id,
+    plan: "free",
+    startDate: new Date(),
+    endDate,
+    isActive: true,
+    features: ["ping", "menu", "info"],
+  });
 
   const tokens = signTokens(user._id.toString(), user.role);
   res.status(201).json({ ...tokens, user: formatUser(user) });
@@ -68,13 +88,13 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 
   const user = await User.findOne({ email });
   if (!user) {
-    res.status(401).json({ error: "Invalid credentials" });
+    res.status(401).json({ error: "Email atau kata sandi salah" });
     return;
   }
 
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) {
-    res.status(401).json({ error: "Invalid credentials" });
+    res.status(401).json({ error: "Email atau kata sandi salah" });
     return;
   }
 
@@ -106,7 +126,7 @@ router.post("/auth/refresh", async (req, res): Promise<void> => {
     const tokens = signTokens(user._id.toString(), user.role);
     res.json({ ...tokens, user: formatUser(user) });
   } catch {
-    res.status(401).json({ error: "Invalid or expired refresh token" });
+    res.status(401).json({ error: "Token tidak valid atau sudah kadaluarsa" });
   }
 });
 
