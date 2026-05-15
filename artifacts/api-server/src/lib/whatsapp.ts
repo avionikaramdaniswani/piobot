@@ -52,26 +52,36 @@ function normalizePhone(raw: string): string {
   return num;
 }
 
-async function resolveSenderPhone(
+async function isLidMatchingPhone(
   sock: ReturnType<typeof makeWASocket>,
-  sender: string,
-): Promise<string> {
-  // LID JID: "78752604233848@lid" — perlu di-resolve ke nomor telepon dulu
-  if (sender.endsWith("@lid")) {
-    try {
-      const signalRepo = (sock as any).signalRepository;
-      const result = await signalRepo?.lidMapping?.getPNForLID(sender);
-      if (result?.pn) {
-        const pnNum = result.pn.split("@")[0]?.split(":")[0] ?? "";
-        logger.info({ lid: sender, pn: result.pn, pnNum }, "LID resolved to PN");
-        return normalizePhone(pnNum);
-      }
-    } catch (err) {
-      logger.warn({ err, sender }, "Failed to resolve LID to PN");
+  senderLid: string,
+  phoneNumber: string,
+): Promise<boolean> {
+  try {
+    const signalRepo = (sock as any).signalRepository;
+    if (!signalRepo?.lidMapping) return false;
+
+    // 1. Coba reverse: LID → PN (mungkin sudah ada di cache/DB)
+    const reverseResult = await signalRepo.lidMapping.getPNForLID(senderLid);
+    if (reverseResult?.pn) {
+      const pnNum = normalizePhone(reverseResult.pn.split("@")[0]?.split(":")[0] ?? "");
+      logger.info({ senderLid, pn: reverseResult.pn, pnNum }, "LID→PN reverse resolved");
+      return pnNum === normalizePhone(phoneNumber);
     }
+
+    // 2. Forward: PN → LID via USync query ke WA server (network request)
+    const ownerPnJid = `${normalizePhone(phoneNumber)}@s.whatsapp.net`;
+    const lidResult = await signalRepo.lidMapping.getLIDForPN(ownerPnJid);
+    if (lidResult) {
+      const ownerLidUser = lidResult.split("@")[0]?.split(":")[0] ?? "";
+      const senderLidUser = senderLid.split("@")[0]?.split(":")[0] ?? "";
+      logger.info({ ownerPnJid, lidResult, ownerLidUser, senderLidUser }, "LID forward lookup result");
+      return ownerLidUser === senderLidUser;
+    }
+  } catch (err) {
+    logger.warn({ err, senderLid, phoneNumber }, "LID matching failed");
   }
-  // Nomor biasa: "628xxx@s.whatsapp.net" atau "628xxx:0@s.whatsapp.net"
-  return normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
+  return false;
 }
 
 async function isBotOwner(
@@ -81,7 +91,22 @@ async function isBotOwner(
 ): Promise<boolean> {
   const botDoc = await Bot.findById(botId).lean();
   const owners: Array<{ phoneNumber: string }> = (botDoc as any)?.owners ?? [];
-  const senderNum = await resolveSenderPhone(sock, sender);
+
+  if (sender.endsWith("@lid")) {
+    // Cek tiap owner via LID matching
+    for (const owner of owners) {
+      const matched = await isLidMatchingPhone(sock, sender, owner.phoneNumber);
+      if (matched) {
+        logger.info({ sender, phone: owner.phoneNumber, botId }, "LID owner matched");
+        return true;
+      }
+    }
+    logger.info({ sender, ownerCount: owners.length, botId }, "LID owner NOT matched");
+    return false;
+  }
+
+  // Nomor biasa: "628xxx@s.whatsapp.net" atau "628xxx:0@s.whatsapp.net"
+  const senderNum = normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
   const ownerNums = owners.map((o) => normalizePhone(o.phoneNumber));
   const matched = ownerNums.some((n) => n === senderNum);
   logger.info({ senderNum, ownerNums, matched, botId }, "isBotOwner check");
@@ -95,8 +120,19 @@ async function isBotOwnerDebug(
 ): Promise<{ matched: boolean; senderNum: string; ownerNums: string[]; rawSender: string }> {
   const botDoc = await Bot.findById(botId).lean();
   const owners: Array<{ phoneNumber: string }> = (botDoc as any)?.owners ?? [];
-  const senderNum = await resolveSenderPhone(sock, sender);
   const ownerNums = owners.map((o) => normalizePhone(o.phoneNumber));
+
+  if (sender.endsWith("@lid")) {
+    for (const owner of owners) {
+      const matched = await isLidMatchingPhone(sock, sender, owner.phoneNumber);
+      if (matched) {
+        return { matched: true, senderNum: normalizePhone(owner.phoneNumber), ownerNums, rawSender: sender };
+      }
+    }
+    return { matched: false, senderNum: `LID:${sender.split("@")[0]}`, ownerNums, rawSender: sender };
+  }
+
+  const senderNum = normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
   const matched = ownerNums.some((n) => n === senderNum);
   return { matched, senderNum, ownerNums, rawSender: sender };
 }
