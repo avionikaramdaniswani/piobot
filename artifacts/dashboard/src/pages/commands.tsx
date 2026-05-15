@@ -47,7 +47,8 @@ async function getFirstBotId(token: string): Promise<string | null> {
   });
   if (!res.ok) return null;
   const data = await res.json();
-  return data.bots?.[0]?._id ?? null;
+  const bots = Array.isArray(data) ? data : (data.bots ?? []);
+  return bots[0]?.id ?? bots[0]?._id ?? null;
 }
 
 export default function CommandsPage() {
