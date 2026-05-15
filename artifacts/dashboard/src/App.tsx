@@ -3,7 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect } from "react";
-import { setAuthTokenGetter } from "@workspace/api-client-react";
+import { setAuthTokenGetter, setUnauthorizedHandler } from "@workspace/api-client-react";
+import { useAuthStore } from "@/store/useAuthStore";
 
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { DashboardLayout } from "@/components/layout";
@@ -17,7 +18,16 @@ import BotsList from "@/pages/bots/index";
 import BotDetail from "@/pages/bots/[id]";
 import Subscription from "@/pages/subscription";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, error: any) => {
+        if (error?.status === 401) return false;
+        return failureCount < 2;
+      },
+    },
+  },
+});
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -67,9 +77,12 @@ function Router() {
 }
 
 function App() {
+  const refreshAccessToken = useAuthStore(s => s.refreshAccessToken);
+
   useEffect(() => {
     setAuthTokenGetter(() => localStorage.getItem("accessToken"));
-  }, []);
+    setUnauthorizedHandler(refreshAccessToken);
+  }, [refreshAccessToken]);
 
   return (
     <QueryClientProvider client={queryClient}>
