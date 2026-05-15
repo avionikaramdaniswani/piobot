@@ -18,6 +18,7 @@ import {
   stopWhatsAppBot,
   getBotQRCode,
   requestBotPairingCode,
+  updateBotPrefixes,
 } from "../lib/whatsapp";
 import { botLogEmitter, type BotLogEvent } from "../lib/botLogger";
 import { COMMAND_REGISTRY } from "../lib/commandRegistry";
@@ -156,6 +157,10 @@ router.patch("/bots/:id", requireAuth, async (req, res): Promise<void> => {
       update.owners = clean;
     }
     const updated = await Bot.findByIdAndUpdate(bot._id, update, { returnDocument: "after" });
+    // Sync prefix cache langsung tanpa perlu restart bot
+    if (update.prefixes) {
+      updateBotPrefixes(bot._id.toString(), update.prefixes);
+    }
     const sub = await Subscription.findOne({ botId: bot._id, isActive: true });
     res.json(formatBot(updated!, sub ?? null));
   } catch (err: any) {

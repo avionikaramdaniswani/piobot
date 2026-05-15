@@ -734,6 +734,15 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
   });
 }
 
+export function updateBotPrefixes(botId: string, prefixes: string[]): void {
+  if (!activeSockets.has(botId)) return; // bot tidak sedang jalan, tidak perlu update
+  const cleaned = prefixes.filter((p) => p.length > 0);
+  if (cleaned.length === 0) return;
+  botPrefixes.set(botId, cleaned);
+  logger.info({ botId, prefixes: cleaned }, "Bot prefixes updated in-memory");
+  emitBotLog(botId, `Prefix diperbarui: ${cleaned.map((p) => `"${p}"`).join(", ")}`, "info");
+}
+
 export async function stopWhatsAppBot(botId: string): Promise<void> {
   const sock = activeSockets.get(botId);
   if (sock) {
