@@ -44,11 +44,22 @@ function defineCommand(names: string[], handler: CommandHandler) {
 
 // ─── Permission Helpers ────────────────────────────────────────────────────────
 
+function normalizePhone(raw: string): string {
+  // Strip semua non-digit
+  let num = raw.replace(/\D/g, "");
+  // Nomor lokal Indonesia: 08xxx → 628xxx
+  if (num.startsWith("0")) num = "62" + num.slice(1);
+  return num;
+}
+
 async function isBotOwner(botId: string, sender: string): Promise<boolean> {
   const botDoc = await Bot.findById(botId).lean();
   const owners: Array<{ phoneNumber: string }> = (botDoc as any)?.owners ?? [];
-  const senderNum = sender.split("@")[0]?.split(":")[0] ?? "";
-  return owners.some((o) => o.phoneNumber.replace(/\D/g, "") === senderNum);
+  // Sender JID: "628xxx@s.whatsapp.net" atau "628xxx:0@s.whatsapp.net"
+  const senderNum = normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
+  const matched = owners.some((o) => normalizePhone(o.phoneNumber) === senderNum);
+  logger.debug({ senderNum, owners: owners.map((o) => normalizePhone(o.phoneNumber)), matched }, "isBotOwner check");
+  return matched;
 }
 
 async function isGroupAdmin(
