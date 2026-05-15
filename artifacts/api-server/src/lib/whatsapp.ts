@@ -29,6 +29,7 @@ type CommandContext = {
   botName: string;
   prefix: string;
   botId: string;
+  pushName: string;
   quotedMsg?: WAMessage["message"];
 };
 
@@ -130,11 +131,11 @@ defineCommand(["owner"], async ({ sock, jid, botId }) => {
 });
 
 // .profile / .profil / .me
-defineCommand(["profile", "profil", "me"], async ({ sock, jid, sender, botId, botName, prefix }) => {
+defineCommand(["profile", "profil", "me"], async ({ sock, jid, sender, botId, prefix, pushName }) => {
   const senderJid = sender || jid;
 
-  // Ensure BotUser exists (will create with default values if first time)
-  const botUser = await ensureBotUser(botId, senderJid);
+  // Ensure BotUser exists & update displayName if pushName available
+  const botUser = await ensureBotUser(botId, senderJid, pushName || undefined);
 
   // Build display number (strip @s.whatsapp.net / :XX@)
   const rawNum = senderJid.split("@")[0]?.split(":")[0] ?? senderJid;
@@ -142,7 +143,8 @@ defineCommand(["profile", "profil", "me"], async ({ sock, jid, sender, botId, bo
     ? `+${rawNum.slice(0, 4)}****${rawNum.slice(-4)}`
     : `+${rawNum}`;
 
-  const displayName = botUser.displayName || displayNum;
+  // Prioritize live pushName from message > stored displayName > masked number
+  const displayName = pushName || botUser.displayName || displayNum;
 
   // Limit bar visual (out of 25 default)
   const DEFAULT_LIMIT = 25;
@@ -350,6 +352,7 @@ async function handleMessage(
       botName,
       prefix: matchedPrefix,
       botId,
+      pushName: (msg as any).pushName ?? "",
       quotedMsg: msg.message?.extendedTextMessage?.contextInfo?.quotedMessage ?? undefined,
     });
 
