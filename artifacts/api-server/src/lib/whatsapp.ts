@@ -2,6 +2,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   Browsers,
+  WAMessage,
 } from "ourin-baileys";
 import pino from "pino";
 import path from "node:path";
@@ -15,6 +16,7 @@ const SESSIONS_DIR = path.resolve(__dirname, "../../sessions");
 
 const activeSockets = new Map<string, ReturnType<typeof makeWASocket>>();
 const qrCodes = new Map<string, string>();
+const botPrefixes = new Map<string, string>();
 
 const silentLogger = pino({ level: "silent" });
 
@@ -24,11 +26,204 @@ async function ensureSessionDir(botId: string): Promise<string> {
   return dir;
 }
 
+// ─── Command Handlers ────────────────────────────────────────────────────────
+
+type CommandContext = {
+  sock: ReturnType<typeof makeWASocket>;
+  jid: string;
+  sender: string;
+  isGroup: boolean;
+  args: string[];
+  fullText: string;
+  botName: string;
+  prefix: string;
+  quotedMsg?: WAMessage["message"];
+};
+
+type CommandHandler = (ctx: CommandContext) => Promise<void>;
+
+const commands = new Map<string, CommandHandler>();
+
+function defineCommand(names: string[], handler: CommandHandler) {
+  for (const name of names) commands.set(name, handler);
+}
+
+// .ping / .p
+defineCommand(["ping", "p"], async ({ sock, jid }) => {
+  const start = Date.now();
+  await sock.sendMessage(jid, { text: "🏓 Pong! Mengukur latensi..." });
+  const latency = Date.now() - start;
+  await sock.sendMessage(jid, { text: `⚡ Latensi: *${latency}ms*` });
+});
+
+// .menu / .help / .start
+defineCommand(["menu", "help", "start"], async ({ sock, jid, prefix, botName, isGroup }) => {
+  const text = [
+    `╔══════════════════════╗`,
+    `║   🤖 *${botName}*`,
+    `╚══════════════════════╝`,
+    ``,
+    `📌 *Prefix:* \`${prefix}\``,
+    `📍 *Mode:* ${isGroup ? "Grup" : "Private"}`,
+    ``,
+    `━━━ 📋 *PERINTAH* ━━━`,
+    ``,
+    `${prefix}ping       - Cek latensi bot`,
+    `${prefix}menu       - Tampilkan menu ini`,
+    `${prefix}info       - Info bot`,
+    `${prefix}runtime    - Waktu aktif bot`,
+    `${prefix}owner      - Kontak owner`,
+    ``,
+    `> Ketik perintah di atas untuk memulai!`,
+  ].join("\n");
+
+  await sock.sendMessage(jid, { text });
+});
+
+// .info
+defineCommand(["info"], async ({ sock, jid, botName, prefix, isGroup }) => {
+  const uptime = process.uptime();
+  const h = Math.floor(uptime / 3600);
+  const m = Math.floor((uptime % 3600) / 60);
+  const s = Math.floor(uptime % 60);
+
+  const text = [
+    `🤖 *Informasi Bot*`,
+    ``,
+    `• Nama: *${botName}*`,
+    `• Prefix: *${prefix}*`,
+    `• Platform: *WhatsApp*`,
+    `• Mode: *${isGroup ? "Grup" : "Private"}*`,
+    `• Runtime: *${h}j ${m}m ${s}d*`,
+    `• Framework: *ourin-baileys*`,
+    ``,
+    `✅ Bot aktif dan siap menerima perintah!`,
+  ].join("\n");
+
+  await sock.sendMessage(jid, { text });
+});
+
+// .runtime
+defineCommand(["runtime", "uptime"], async ({ sock, jid }) => {
+  const uptime = process.uptime();
+  const h = Math.floor(uptime / 3600);
+  const m = Math.floor((uptime % 3600) / 60);
+  const s = Math.floor(uptime % 60);
+  await sock.sendMessage(jid, {
+    text: `⏱️ Bot sudah aktif selama:\n*${h} jam ${m} menit ${s} detik*`,
+  });
+});
+
+// .owner
+defineCommand(["owner"], async ({ sock, jid }) => {
+  await sock.sendMessage(jid, {
+    text: `👤 *Owner Bot*\n\nHubungi admin/owner melalui platform dashboard.`,
+  });
+});
+
+// ─── Message Handler ─────────────────────────────────────────────────────────
+
+function extractText(msg: WAMessage): string | null {
+  const m = msg.message;
+  if (!m) return null;
+
+  return (
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    m.imageMessage?.caption ||
+    m.videoMessage?.caption ||
+    m.buttonsResponseMessage?.selectedButtonId ||
+    m.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    null
+  );
+}
+
+function getSender(msg: WAMessage): string {
+  return (
+    msg.key.participant ||
+    msg.key.remoteJid ||
+    ""
+  );
+}
+
+async function handleMessage(
+  botId: string,
+  sock: ReturnType<typeof makeWASocket>,
+  msg: WAMessage,
+  botName: string,
+) {
+  try {
+    const jid = msg.key.remoteJid;
+    if (!jid) return;
+
+    // Skip messages sent by the bot itself
+    if (msg.key.fromMe) return;
+
+    // Skip status broadcasts
+    if (jid === "status@broadcast") return;
+
+    const text = extractText(msg);
+    if (!text) return;
+
+    const prefix = botPrefixes.get(botId) ?? ".";
+    const trimmed = text.trim();
+
+    // Must start with prefix to be a command
+    if (!trimmed.startsWith(prefix)) return;
+
+    const isGroup = jid.endsWith("@g.us");
+    const sender = getSender(msg);
+
+    const withoutPrefix = trimmed.slice(prefix.length).trim();
+    const parts = withoutPrefix.split(/\s+/);
+    const commandName = parts[0]?.toLowerCase() ?? "";
+    const args = parts.slice(1);
+
+    logger.info({ botId, jid, isGroup, commandName }, "Command received");
+
+    const handler = commands.get(commandName);
+    if (!handler) {
+      await sock.sendMessage(jid, {
+        text: `❓ Perintah *${prefix}${commandName}* tidak dikenal.\n\nKetik *${prefix}menu* untuk melihat daftar perintah.`,
+      });
+      return;
+    }
+
+    // Send "typing..." presence
+    await sock.sendPresenceUpdate("composing", jid);
+
+    await handler({
+      sock,
+      jid,
+      sender,
+      isGroup,
+      args,
+      fullText: withoutPrefix,
+      botName,
+      prefix,
+      quotedMsg: msg.message?.extendedTextMessage?.contextInfo?.quotedMessage ?? undefined,
+    });
+
+    // Reset presence
+    await sock.sendPresenceUpdate("paused", jid);
+  } catch (err) {
+    logger.error({ botId, err }, "Error handling message");
+  }
+}
+
+// ─── Socket Lifecycle ─────────────────────────────────────────────────────────
+
 export async function startWhatsAppBot(botId: string): Promise<void> {
   if (activeSockets.has(botId)) {
     logger.info({ botId }, "Bot socket already running");
     return;
   }
+
+  // Load bot config (name + prefix) from DB
+  const botDoc = await Bot.findById(botId);
+  const botName = botDoc?.name ?? "WhatsApp Bot";
+  const prefix = botDoc?.prefix ?? ".";
+  botPrefixes.set(botId, prefix);
 
   const sessionDir = await ensureSessionDir(botId);
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
@@ -39,6 +234,7 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
     browser: Browsers.ubuntu("Chrome"),
     syncFullHistory: false,
     qrTimeout: 60_000,
+    markOnlineOnConnect: true,
   });
 
   activeSockets.set(botId, sock);
@@ -69,6 +265,7 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
 
       qrCodes.delete(botId);
       activeSockets.delete(botId);
+      botPrefixes.delete(botId);
 
       logger.info({ botId, code, loggedOut }, "WhatsApp connection closed");
       await Bot.findByIdAndUpdate(botId, { status: loggedOut ? "inactive" : "disconnected" });
@@ -77,6 +274,14 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
         logger.info({ botId }, "Reconnecting in 5s...");
         setTimeout(() => startWhatsAppBot(botId), 5000);
       }
+    }
+  });
+
+  // ── Message listener (private + group) ──
+  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+    if (type !== "notify") return;
+    for (const msg of messages) {
+      await handleMessage(botId, sock, msg, botName);
     }
   });
 }
@@ -89,6 +294,7 @@ export async function stopWhatsAppBot(botId: string): Promise<void> {
     } catch {}
     activeSockets.delete(botId);
     qrCodes.delete(botId);
+    botPrefixes.delete(botId);
   }
   await Bot.findByIdAndUpdate(botId, { status: "disconnected" });
   logger.info({ botId }, "Bot stopped");
