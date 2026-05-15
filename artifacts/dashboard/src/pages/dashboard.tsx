@@ -86,60 +86,65 @@ function useQRCode(botId: string, enabled: boolean) {
 
 // ─── Terminal component ───────────────────────────────────────────────────────
 
-interface LogLine { time: string; text: string; type?: "info" | "success" | "error" | "muted" }
-
-function nowStr() {
-  return new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+interface LogLine {
+  time: string;
+  text: string;
+  type: "info" | "success" | "error" | "warn" | "muted";
 }
 
-function BotTerminal({ botId, status, phoneNumber, username }: {
+function tsToTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("id-ID", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}
+
+function BotTerminal({ botId, status, username }: {
   botId: string;
   status: string;
-  phoneNumber: string | null;
   username: string;
 }) {
-  const [logs, setLogs] = useState<LogLine[]>([
-    { time: nowStr(), text: "menunggu log dari bot...", type: "muted" },
-  ]);
-  const prevStatus = useRef<string>("");
+  const [logs, setLogs] = useState<LogLine[]>([]);
+  const [streamOk, setStreamOk] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const addLog = (text: string, type: LogLine["type"] = "info") => {
-    setLogs((prev) => [...prev.slice(-49), { time: nowStr(), text, type }]);
-  };
-
+  // Connect to SSE log stream
   useEffect(() => {
-    if (prevStatus.current === status) return;
-    const prev = prevStatus.current;
-    prevStatus.current = status;
-    if (!prev) return;
+    const token = localStorage.getItem("accessToken") ?? "";
+    const url = `/api/bots/${botId}/logs?token=${encodeURIComponent(token)}`;
+    const es = new EventSource(url);
 
-    if (status === "connecting") {
-      addLog("Memulai koneksi ke WhatsApp...", "info");
-      addLog("Menunggu QR code atau kode pairing...", "muted");
-    } else if (status === "connected") {
-      addLog(`Koneksi berhasil! Terhubung ke ${phoneNumber ?? "nomor baru"}`, "success");
-      addLog("Bot aktif dan siap menerima perintah.", "success");
-    } else if (status === "disconnected") {
-      addLog("Koneksi WhatsApp terputus.", "error");
-    } else if (status === "inactive") {
-      addLog("Bot dihentikan.", "muted");
-    }
-  }, [status, phoneNumber]);
+    es.onopen = () => setStreamOk(true);
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data) as {
+          message: string;
+          level: LogLine["type"];
+          timestamp: string;
+        };
+        setLogs((prev) => [
+          ...prev.slice(-199),
+          { time: tsToTime(data.timestamp), text: data.message, type: data.level ?? "info" },
+        ]);
+      } catch {}
+    };
+    es.onerror = () => setStreamOk(false);
 
+    return () => es.close();
+  }, [botId]);
+
+  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  const clearLogs = () => {
-    setLogs([{ time: nowStr(), text: "log dibersihkan.", type: "muted" }]);
-  };
+  const connIndicator =
+    status === "connected"   ? { dot: "bg-[#3fb950]",              label: "connected"    } :
+    status === "connecting"  ? { dot: "bg-yellow-400 animate-pulse", label: "connecting" } :
+                               { dot: "bg-zinc-600",                label: "offline"      };
 
-  const connIndicator = status === "connected"
-    ? { dot: "bg-[#3fb950]", label: "connected" }
-    : status === "connecting"
-    ? { dot: "bg-yellow-400 animate-pulse", label: "connecting" }
-    : { dot: "bg-zinc-500", label: "offline" };
+  const streamIndicator = streamOk
+    ? { dot: "bg-[#3fb950]",            label: "live"          }
+    : { dot: "bg-zinc-600 animate-pulse", label: "connecting..." };
 
   return (
     <div className="rounded-xl overflow-hidden border border-[#30363d] flex flex-col h-full">
@@ -158,9 +163,13 @@ function BotTerminal({ botId, status, phoneNumber, username }: {
             <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", connIndicator.dot)} />
             {connIndicator.label}
           </span>
+          <span className="flex items-center gap-1.5 text-xs text-[#8b949e] font-mono border-l border-[#30363d] pl-3">
+            <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", streamIndicator.dot)} />
+            {streamIndicator.label}
+          </span>
           <button
-            onClick={clearLogs}
-            className="text-[#8b949e] text-xs hover:text-[#e6edf3] transition-colors font-mono"
+            onClick={() => setLogs([])}
+            className="text-[#8b949e] text-xs hover:text-[#e6edf3] transition-colors font-mono border-l border-[#30363d] pl-3"
           >
             clear
           </button>
@@ -168,23 +177,33 @@ function BotTerminal({ botId, status, phoneNumber, username }: {
       </div>
 
       {/* Body */}
-      <div className="bg-[#0d1117] flex-1 p-4 overflow-y-auto font-mono text-sm min-h-[220px] max-h-[300px]">
-        {logs.map((l, i) => (
-          <div key={i} className="flex gap-2 leading-6">
-            <span className="text-[#3fb950] shrink-0 select-none">$</span>
-            <span className="text-[#8b949e] shrink-0 text-xs self-center select-none">[{l.time}]</span>
-            <span className={cn(
-              l.type === "success" && "text-[#3fb950]",
-              l.type === "error" && "text-[#f85149]",
-              l.type === "muted" && "text-[#484f58]",
-              l.type === "info" && "text-[#e6edf3]",
-              !l.type && "text-[#e6edf3]",
-            )}>
-              {l.text}
-            </span>
+      <div className="bg-[#0d1117] flex-1 p-4 overflow-y-auto font-mono text-sm min-h-[240px] max-h-[320px]">
+        {logs.length === 0 ? (
+          <div className="flex gap-2 leading-6 text-[#484f58]">
+            <span className="select-none">$</span>
+            <span>menunggu log dari bot...</span>
           </div>
-        ))}
-        <div className="flex gap-2 leading-6">
+        ) : (
+          logs.map((l, i) => (
+            <div key={i} className="flex gap-2 leading-6">
+              <span className="text-[#3fb950] shrink-0 select-none">$</span>
+              <span className="text-[#484f58] shrink-0 text-[11px] self-center tabular-nums select-none">
+                [{l.time}]
+              </span>
+              <span className={cn(
+                "break-all",
+                l.type === "success" && "text-[#3fb950]",
+                l.type === "error"   && "text-[#f85149]",
+                l.type === "warn"    && "text-yellow-400",
+                l.type === "muted"   && "text-[#484f58]",
+                l.type === "info"    && "text-[#e6edf3]",
+              )}>
+                {l.text}
+              </span>
+            </div>
+          ))
+        )}
+        <div className="flex gap-2 leading-6 mt-0.5">
           <span className="text-[#3fb950] select-none">$</span>
           <span className="text-[#e6edf3] animate-pulse select-none">▋</span>
         </div>
@@ -498,7 +517,6 @@ function BotDashboard({ botId }: { botId: string }) {
         <BotTerminal
           botId={botId}
           status={bot.status}
-          phoneNumber={bot.phoneNumber ?? null}
           username={bot.name}
         />
         <BotControl

@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import jwt from "jsonwebtoken";
 import { Bot, type IBot } from "../models/Bot";
 import { Subscription, type ISubscription } from "../models/Subscription";
 import {
@@ -18,6 +19,7 @@ import {
   getBotQRCode,
   requestBotPairingCode,
 } from "../lib/whatsapp";
+import { botLogEmitter, type BotLogEvent } from "../lib/botLogger";
 
 const router: IRouter = Router();
 
@@ -258,6 +260,69 @@ router.post("/bots/:id/pairing", requireAuth, async (req, res): Promise<void> =>
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Gagal membuat kode pairing" });
   }
+});
+
+// ── SSE log stream ─────────────────────────────────────────────────────────────
+// EventSource doesn't support custom headers, so we accept the JWT via ?token=
+router.get("/bots/:id/logs", async (req, res): Promise<void> => {
+  const token =
+    (req.headers.authorization?.split(" ")[1]) ||
+    (req.query.token as string | undefined);
+
+  if (!token) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  let userId: string;
+  try {
+    const secret = process.env.JWT_SECRET!;
+    const payload = jwt.verify(token, secret) as { userId: string };
+    userId = payload.userId;
+  } catch {
+    res.status(401).json({ error: "Invalid token" });
+    return;
+  }
+
+  const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
+  if (!bot) {
+    res.status(404).json({ error: "Bot not found" });
+    return;
+  }
+
+  // SSE headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const send = (data: object) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if ((res as any).flush) (res as any).flush();
+  };
+
+  // Welcome message
+  send({
+    level: "muted",
+    message: "Log stream terhubung — menunggu aktivitas bot...",
+    timestamp: new Date().toISOString(),
+  });
+
+  // Keep-alive ping every 25s so the connection doesn't time out
+  const keepAlive = setInterval(() => {
+    res.write(": ping\n\n");
+    if ((res as any).flush) (res as any).flush();
+  }, 25_000);
+
+  const onLog = (event: BotLogEvent) => send(event);
+  botLogEmitter.on(`log:${req.params.id}`, onLog);
+
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    botLogEmitter.off(`log:${req.params.id}`, onLog);
+    res.end();
+  });
 });
 
 export default router;
