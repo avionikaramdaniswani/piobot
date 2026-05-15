@@ -76,6 +76,13 @@ router.post("/bots", requireAuth, async (req, res): Promise<void> => {
     return;
   }
   const userId = req.user!.userId;
+
+  const existingBot = await Bot.findOne({ ownerId: userId });
+  if (existingBot) {
+    res.status(409).json({ error: "Setiap akun hanya dapat memiliki 1 bot. Hapus bot yang ada terlebih dahulu untuk membuat yang baru." });
+    return;
+  }
+
   const { name, phoneNumber, prefix } = parsed.data;
   const bot = await Bot.create({
     ownerId: userId,
