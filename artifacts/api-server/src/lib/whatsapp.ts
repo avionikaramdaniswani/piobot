@@ -189,6 +189,60 @@ defineCommand(["swgcbyid"], async ({ sock, jid, sender, args, prefix, botId, msg
   }
 });
 
+// .showidgroup / .listgroup / .grupid
+defineCommand(["showidgroup", "listgroup", "grupid"], async ({ sock, jid, sender, botId, prefix }) => {
+  const owner = await isBotOwner(botId, sender);
+  if (!owner) {
+    await sock.sendMessage(jid, { text: `🚫 Perintah ini hanya untuk *owner bot*.` });
+    return;
+  }
+
+  const groups = await (sock as any).groupFetchAllParticipating();
+  const entries = Object.entries(groups) as [string, any][];
+
+  if (entries.length === 0) {
+    await sock.sendMessage(jid, { text: `📋 Bot belum bergabung di grup manapun.` });
+    return;
+  }
+
+  const lines = entries.map(([id, meta], i) => {
+    const name = meta?.subject ?? "Tanpa Nama";
+    const shortId = id.replace("@g.us", "");
+    return `${i + 1}. *${name}*\n   ID: \`${shortId}\``;
+  });
+
+  const chunks: string[] = [];
+  let current: string[] = [
+    `╔══════════════════════╗`,
+    `║  📋 *DAFTAR GRUP BOT*  ║`,
+    `╚══════════════════════╝`,
+    ``,
+    `Total: *${entries.length} grup*`,
+    ``,
+  ];
+  let count = 0;
+
+  for (const line of lines) {
+    current.push(line);
+    current.push("");
+    count++;
+    if (count === 20) {
+      chunks.push(current.join("\n"));
+      current = [];
+      count = 0;
+    }
+  }
+
+  if (current.length > 0) {
+    current.push(`> Gunakan ID di atas dengan *${prefix}swgcbyid*`);
+    chunks.push(current.join("\n"));
+  }
+
+  for (const chunk of chunks) {
+    await sock.sendMessage(jid, { text: chunk });
+  }
+});
+
 // .ping / .p
 defineCommand(["ping", "p"], async ({ sock, jid }) => {
   const start = Date.now();
@@ -227,6 +281,7 @@ defineCommand(["menu", "help", "start"], async ({ sock, jid, prefix, botName, is
     `👥 *Grup*`,
     `${prefix}swgc       - Kirim status ke grup ini`,
     `${prefix}swgcbyid   - Kirim status ke grup by ID`,
+    `${prefix}showidgroup - Lihat semua ID grup bot`,
     ``,
     `> Ketik perintah di atas untuk memulai!`,
   ].join("\n");

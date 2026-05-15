@@ -52,15 +52,22 @@ export const COMMAND_REGISTRY: CommandMeta[] = [
   {
     key: "swgc",
     aliases: ["swgc"],
-    description: "Kirim status/story ke grup aktif (reply foto/video/teks) — khusus owner & admin grup",
-    usage: ".swgc [teks] atau reply foto/video",
+    description: "Kirim status/story ke grup aktif (reply foto/video/teks + caption) — khusus owner & admin grup",
+    usage: ".swgc [caption] atau kirim/reply foto/video + .swgc [caption]",
     category: "Grup",
   },
   {
     key: "swgcbyid",
     aliases: ["swgcbyid"],
     description: "Kirim status/story ke grup berdasarkan ID — khusus owner bot",
-    usage: ".swgcbyid (id_grup) [teks] atau reply foto/video",
+    usage: ".swgcbyid (id_grup) [caption] atau kirim/reply foto/video + .swgcbyid (id_grup) [caption]",
+    category: "Grup",
+  },
+  {
+    key: "showidgroup",
+    aliases: ["showidgroup", "listgroup", "grupid"],
+    description: "Tampilkan semua ID grup yang diikuti bot — khusus owner",
+    usage: ".showidgroup",
     category: "Grup",
   },
 ];
