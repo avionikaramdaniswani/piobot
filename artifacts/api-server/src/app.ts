@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
@@ -48,6 +48,12 @@ async function reconnectActiveBots(): Promise<void> {
     });
   }
 }
+
+// Global JSON error handler — ensures no route ever returns HTML on errors
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, "Unhandled route error");
+  res.status(err?.status ?? 500).json({ error: err?.message ?? "Internal server error" });
+});
 
 connectDB()
   .then(() => reconnectActiveBots())

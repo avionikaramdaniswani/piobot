@@ -128,35 +128,39 @@ router.get("/bots/:id", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.patch("/bots/:id", requireAuth, async (req, res): Promise<void> => {
-  const userId = req.user!.userId;
-  const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
-  if (!bot) {
-    res.status(404).json({ error: "Bot not found" });
-    return;
-  }
-  const update: Record<string, any> = {};
-  if (req.body.name && typeof req.body.name === "string") update.name = req.body.name.trim();
-  if (req.body.prefix && typeof req.body.prefix === "string") update.prefix = req.body.prefix.trim();
-  if (Array.isArray(req.body.prefixes)) {
-    const clean = req.body.prefixes
-      .map((p: any) => (typeof p === "string" ? p.trim() : ""))
-      .filter((p: string) => p.length > 0 && p.length <= 5);
-    if (clean.length > 0) {
-      update.prefixes = clean;
-      update.prefix = clean[0];
+  try {
+    const userId = req.user!.userId;
+    const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
+    if (!bot) {
+      res.status(404).json({ error: "Bot not found" });
+      return;
     }
+    const update: Record<string, any> = {};
+    if (req.body.name && typeof req.body.name === "string") update.name = req.body.name.trim();
+    if (req.body.prefix && typeof req.body.prefix === "string") update.prefix = req.body.prefix.trim();
+    if (Array.isArray(req.body.prefixes)) {
+      const clean = req.body.prefixes
+        .map((p: any) => (typeof p === "string" ? p.trim() : ""))
+        .filter((p: string) => p.length > 0 && p.length <= 5);
+      if (clean.length > 0) {
+        update.prefixes = clean;
+        update.prefix = clean[0];
+      }
+    }
+    if (Array.isArray(req.body.owners)) {
+      const clean = req.body.owners
+        .filter((o: any) => o && typeof o.name === "string" && typeof o.phoneNumber === "string")
+        .map((o: any) => ({ name: o.name.trim(), phoneNumber: o.phoneNumber.trim() }))
+        .filter((o: any) => o.name && o.phoneNumber)
+        .slice(0, 3);
+      update.owners = clean;
+    }
+    const updated = await Bot.findByIdAndUpdate(bot._id, update, { returnDocument: "after" });
+    const sub = await Subscription.findOne({ botId: bot._id, isActive: true });
+    res.json(formatBot(updated!, sub ?? null));
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Internal server error" });
   }
-  if (Array.isArray(req.body.owners)) {
-    const clean = req.body.owners
-      .filter((o: any) => o && typeof o.name === "string" && typeof o.phoneNumber === "string")
-      .map((o: any) => ({ name: o.name.trim(), phoneNumber: o.phoneNumber.trim() }))
-      .filter((o: any) => o.name && o.phoneNumber)
-      .slice(0, 3);
-    update.owners = clean;
-  }
-  const updated = await Bot.findByIdAndUpdate(bot._id, update, { new: true });
-  const sub = await Subscription.findOne({ botId: bot._id, isActive: true });
-  res.json(formatBot(updated!, sub ?? null));
 });
 
 router.delete("/bots/:id", requireAuth, async (req, res): Promise<void> => {
