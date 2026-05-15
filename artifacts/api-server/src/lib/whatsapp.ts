@@ -70,7 +70,26 @@ async function resolveGroupStatusContent(
   msg: WAMessage,
   args: string[],
 ): Promise<{ content: Record<string, unknown>; error?: string }> {
-  const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  const m = msg.message;
+
+  // 1. Pesan langsung berupa gambar (kirim foto + caption .swgc)
+  if (m?.imageMessage) {
+    const mediaUrl = m.imageMessage.url;
+    if (!mediaUrl) return { content: {}, error: "no_content" };
+    const caption = args.join(" ") || "";
+    return { content: { image: { url: mediaUrl }, caption } };
+  }
+
+  // 2. Pesan langsung berupa video (kirim video + caption .swgc)
+  if (m?.videoMessage) {
+    const mediaUrl = m.videoMessage.url;
+    if (!mediaUrl) return { content: {}, error: "no_content" };
+    const caption = args.join(" ") || "";
+    return { content: { video: { url: mediaUrl }, caption } };
+  }
+
+  // 3. Reply ke gambar
+  const quoted = m?.extendedTextMessage?.contextInfo?.quotedMessage;
 
   if (quoted?.imageMessage) {
     const mediaUrl = quoted.imageMessage.url;
@@ -79,6 +98,7 @@ async function resolveGroupStatusContent(
     return { content: { image: { url: mediaUrl }, caption } };
   }
 
+  // 4. Reply ke video
   if (quoted?.videoMessage) {
     const mediaUrl = quoted.videoMessage.url;
     if (!mediaUrl) return { content: {}, error: "no_content" };
@@ -86,6 +106,7 @@ async function resolveGroupStatusContent(
     return { content: { video: { url: mediaUrl }, caption } };
   }
 
+  // 5. Teks biasa
   const text = args.join(" ").trim();
   if (!text) {
     return { content: {}, error: "no_content" };
