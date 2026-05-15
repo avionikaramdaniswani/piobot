@@ -230,6 +230,7 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
       const phoneNumber = sock.user?.id?.split(":")[0]?.split("@")[0];
       await Bot.findByIdAndUpdate(botId, {
         status: "connected",
+        connectedAt: new Date(),
         ...(phoneNumber ? { phoneNumber: `+${phoneNumber}` } : {}),
       });
     }
@@ -243,7 +244,10 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
       botPrefixes.delete(botId);
 
       logger.info({ botId, code, loggedOut }, "WhatsApp connection closed");
-      await Bot.findByIdAndUpdate(botId, { status: loggedOut ? "inactive" : "disconnected" });
+      await Bot.findByIdAndUpdate(botId, {
+        status: loggedOut ? "inactive" : "disconnected",
+        connectedAt: null,
+      });
 
       if (loggedOut) {
         // Wipe session data from MongoDB on explicit logout

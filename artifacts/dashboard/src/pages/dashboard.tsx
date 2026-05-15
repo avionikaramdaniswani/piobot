@@ -385,27 +385,21 @@ function BotDashboard({ botId }: { botId: string }) {
   const stopMutation = useStopBot();
   const [clearPending, setClearPending] = useState(false);
 
-  // Runtime counter
-  const connectedAtRef = useRef<number | null>(null);
+  // Runtime counter — driven by server-side connectedAt timestamp
   const [runtime, setRuntime] = useState("—");
 
   useEffect(() => {
-    if (bot?.status === "connected") {
-      if (!connectedAtRef.current) connectedAtRef.current = Date.now();
-    } else {
-      connectedAtRef.current = null;
+    const connectedAt = (bot as any)?.connectedAt;
+    if (!connectedAt || bot?.status !== "connected") {
       setRuntime("—");
+      return;
     }
-  }, [bot?.status]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (connectedAtRef.current) {
-        setRuntime(formatRuntime(Date.now() - connectedAtRef.current));
-      }
-    }, 1000);
+    const epoch = new Date(connectedAt).getTime();
+    const update = () => setRuntime(formatRuntime(Date.now() - epoch));
+    update();
+    const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [(bot as any)?.connectedAt, bot?.status]);
 
   const handleStart = async () => {
     try {

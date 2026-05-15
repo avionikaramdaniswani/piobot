@@ -11,6 +11,7 @@ const botSchema = new mongoose.Schema(
       default: "inactive",
     },
     prefix: { type: String, default: "." },
+    connectedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
@@ -21,6 +22,7 @@ export interface IBot extends mongoose.Document {
   phoneNumber: string | null;
   status: "inactive" | "connecting" | "connected" | "disconnected";
   prefix: string;
+  connectedAt: Date | null;
   createdAt: Date;
 }
 

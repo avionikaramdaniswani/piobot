@@ -43,6 +43,7 @@ function formatBot(bot: IBot, subscription?: ISubscription | null) {
     phoneNumber: bot.phoneNumber ?? null,
     status: bot.status,
     prefix: bot.prefix,
+    connectedAt: bot.connectedAt ? bot.connectedAt.toISOString() : null,
     createdAt: bot.createdAt.toISOString(),
     ...(subscription !== undefined ? { subscription: formatSub(subscription) } : {}),
   };
