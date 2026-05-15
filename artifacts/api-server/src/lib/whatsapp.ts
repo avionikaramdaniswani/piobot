@@ -57,9 +57,22 @@ async function isBotOwner(botId: string, sender: string): Promise<boolean> {
   const owners: Array<{ phoneNumber: string }> = (botDoc as any)?.owners ?? [];
   // Sender JID: "628xxx@s.whatsapp.net" atau "628xxx:0@s.whatsapp.net"
   const senderNum = normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
-  const matched = owners.some((o) => normalizePhone(o.phoneNumber) === senderNum);
-  logger.debug({ senderNum, owners: owners.map((o) => normalizePhone(o.phoneNumber)), matched }, "isBotOwner check");
+  const ownerNums = owners.map((o) => normalizePhone(o.phoneNumber));
+  const matched = ownerNums.some((n) => n === senderNum);
+  logger.info({ senderNum, ownerNums, matched, botId }, "isBotOwner check");
   return matched;
+}
+
+async function isBotOwnerDebug(
+  botId: string,
+  sender: string,
+): Promise<{ matched: boolean; senderNum: string; ownerNums: string[] }> {
+  const botDoc = await Bot.findById(botId).lean();
+  const owners: Array<{ phoneNumber: string }> = (botDoc as any)?.owners ?? [];
+  const senderNum = normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
+  const ownerNums = owners.map((o) => normalizePhone(o.phoneNumber));
+  const matched = ownerNums.some((n) => n === senderNum);
+  return { matched, senderNum, ownerNums };
 }
 
 async function isGroupAdmin(
@@ -198,6 +211,28 @@ defineCommand(["swgcbyid"], async ({ sock, jid, sender, args, prefix, botId, msg
       text: `❌ Gagal mengirim status grup.\n\n${err?.message ?? "Unknown error"}`,
     });
   }
+});
+
+// .cekowner — debug: tampilkan nomor terdeteksi vs owner tersimpan
+defineCommand(["cekowner"], async ({ sock, jid, sender, botId }) => {
+  const { matched, senderNum, ownerNums } = await isBotOwnerDebug(botId, sender);
+  const rawSender = sender;
+  const text = [
+    `🔍 *Debug Owner Check*`,
+    ``,
+    `📱 JID kamu (raw): \`${rawSender}\``,
+    `🔢 Nomor terdeteksi: \`${senderNum}\``,
+    ``,
+    `👑 Owner tersimpan di DB:`,
+    ownerNums.length === 0
+      ? `   _(kosong — belum ada owner disimpan)_`
+      : ownerNums.map((n, i) => `   ${i + 1}. \`${n}\``).join("\n"),
+    ``,
+    matched
+      ? `✅ *COCOK* — kamu dikenali sebagai owner`
+      : `❌ *TIDAK COCOK* — kamu bukan owner menurut bot`,
+  ].join("\n");
+  await sock.sendMessage(jid, { text });
 });
 
 // .showidgroup / .listgroup / .grupid

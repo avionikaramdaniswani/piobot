@@ -70,6 +70,13 @@ export const COMMAND_REGISTRY: CommandMeta[] = [
     usage: ".showidgroup",
     category: "Grup",
   },
+  {
+    key: "cekowner",
+    aliases: ["cekowner"],
+    description: "Cek apakah nomormu terdeteksi sebagai owner bot (debug)",
+    usage: ".cekowner",
+    category: "Grup",
+  },
 ];
 
 export const ALL_ALIASES = new Set(COMMAND_REGISTRY.flatMap((c) => c.aliases));
