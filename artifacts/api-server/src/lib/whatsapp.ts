@@ -9,6 +9,7 @@ import { logger } from "./logger.js";
 import { useMongoAuthState, deleteMongoAuthState } from "./mongoAuthState.js";
 import { emitBotLog } from "./botLogger.js";
 import { keyForAlias } from "./commandRegistry.js";
+import { ensureBotUser } from "./limitReset.js";
 
 const activeSockets = new Map<string, ReturnType<typeof makeWASocket>>();
 const qrCodes = new Map<string, string>();
@@ -200,7 +201,7 @@ async function handleMessage(
       return;
     }
 
-    // Check if this command is disabled by the owner
+    // Check if this command is disabled by the owner + check limit
     const cmdKey = keyForAlias(commandName);
     if (cmdKey) {
       const botDoc = await Bot.findById(botId).lean();
@@ -216,6 +217,32 @@ async function handleMessage(
           text: `🚫 Perintah *${matchedPrefix}${commandName}* sedang dinonaktifkan.`,
         });
         return;
+      }
+
+      // ── Limit check ──────────────────────────────────────────────────────
+      const limitCostMap = (botDoc as any)?.commandLimitCost as Record<string, number> | undefined;
+      const limitCost = limitCostMap ? (limitCostMap[cmdKey] ?? 0) : 0;
+
+      if (limitCost > 0) {
+        const pushName = (msg as any)?.pushName ?? "";
+        const botUser = await ensureBotUser(botId, sender || jid, pushName);
+
+        if (botUser.limit < limitCost) {
+          emitBotLog(botId, `${senderShort} limit habis saat mencoba ${matchedPrefix}${commandName}`, "warn");
+          await sock.sendMessage(jid, {
+            text: `⚠️ *Limit kamu habis!*\n\n` +
+              `Limit kamu: *${botUser.limit}/${25}*\n` +
+              `Butuh: *${limitCost} limit*\n\n` +
+              `Limit akan direset otomatis setiap hari pukul *00.00 WIB*.\n` +
+              `Atau beli limit menggunakan balance kamu. 💰`,
+          });
+          return;
+        }
+
+        botUser.limit -= limitCost;
+        botUser.totalCommandsUsed += 1;
+        await botUser.save();
+        emitBotLog(botId, `${senderShort} pakai ${limitCost} limit untuk ${matchedPrefix}${commandName} (sisa: ${botUser.limit})`, "muted");
       }
     }
 

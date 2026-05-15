@@ -3,7 +3,7 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { TerminalSquare, Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { TerminalSquare, Loader2, AlertCircle, RefreshCw, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CommandItem {
@@ -13,15 +13,31 @@ interface CommandItem {
   usage: string;
   category: string;
   enabled: boolean;
+  limitCost: number;
 }
 
 async function fetchCommands(botId: string, token: string): Promise<CommandItem[]> {
-  const res = await fetch(`/api/bots/${botId}/commands`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const [cmdRes, costRes] = await Promise.all([
+    fetch(`/api/bots/${botId}/commands`, { headers: { Authorization: `Bearer ${token}` } }),
+    fetch(`/api/bots/${botId}/commands/limit-cost`, { headers: { Authorization: `Bearer ${token}` } }),
+  ]);
+  if (!cmdRes.ok) throw new Error("Gagal memuat command");
+  const data = await cmdRes.json();
+  const costData = costRes.ok ? await costRes.json() : { limitCost: {} };
+  const costMap: Record<string, number> = costData.limitCost ?? {};
+  return (data.commands as Omit<CommandItem, "limitCost">[]).map((c) => ({
+    ...c,
+    limitCost: costMap[c.key] ?? 0,
+  }));
+}
+
+async function patchLimitCost(botId: string, key: string, cost: number, token: string): Promise<void> {
+  const res = await fetch(`/api/bots/${botId}/commands/${key}/limit-cost`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ cost }),
   });
-  if (!res.ok) throw new Error("Gagal memuat command");
-  const data = await res.json();
-  return data.commands;
+  if (!res.ok) throw new Error("Gagal menyimpan limit cost");
 }
 
 async function patchCommand(
@@ -61,6 +77,8 @@ export default function CommandsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<Set<string>>(new Set());
+  const [editingCost, setEditingCost] = useState<Record<string, string>>({});
+  const [savingCost, setSavingCost] = useState<Set<string>>(new Set());
 
   const load = async () => {
     setLoading(true);
@@ -82,6 +100,28 @@ export default function CommandsPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  const saveCost = async (key: string) => {
+    if (!botId || savingCost.has(key)) return;
+    const rawVal = editingCost[key];
+    if (rawVal === undefined) return;
+    const cost = parseInt(rawVal, 10);
+    if (isNaN(cost) || cost < 0) {
+      toast({ variant: "destructive", title: "Nilai tidak valid", description: "Limit cost harus angka >= 0" });
+      return;
+    }
+    setSavingCost((prev) => new Set(prev).add(key));
+    try {
+      await patchLimitCost(botId, key, cost, token);
+      setCommands((prev) => prev.map((c) => (c.key === key ? { ...c, limitCost: cost } : c)));
+      setEditingCost((prev) => { const n = { ...prev }; delete n[key]; return n; });
+      toast({ title: "Limit cost disimpan", description: `Perintah .${key} butuh ${cost} limit.` });
+    } catch {
+      toast({ variant: "destructive", title: "Gagal", description: "Tidak dapat menyimpan limit cost." });
+    } finally {
+      setSavingCost((prev) => { const s = new Set(prev); s.delete(key); return s; });
+    }
+  };
 
   const toggle = async (key: string, current: boolean) => {
     if (!botId || toggling.has(key)) return;
@@ -231,6 +271,39 @@ export default function CommandsPage() {
                     </p>
                   </div>
 
+                  {/* Limit cost input */}
+                  <div className="shrink-0 flex items-center gap-1.5">
+                    <div className="flex items-center gap-1 text-[11px] text-muted-foreground/60">
+                      <Zap className="w-3 h-3 text-blue-400" />
+                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-14 h-7 rounded-md border border-border bg-background text-xs text-center font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      title="Limit yang dibutuhkan (0 = gratis)"
+                      placeholder="0"
+                      value={editingCost[cmd.key] ?? String(cmd.limitCost)}
+                      onChange={(e) =>
+                        setEditingCost((prev) => ({ ...prev, [cmd.key]: e.target.value }))
+                      }
+                      onBlur={() => {
+                        const raw = editingCost[cmd.key];
+                        if (raw !== undefined && raw !== String(cmd.limitCost)) {
+                          saveCost(cmd.key);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveCost(cmd.key);
+                        if (e.key === "Escape") {
+                          setEditingCost((prev) => { const n = { ...prev }; delete n[cmd.key]; return n; });
+                        }
+                      }}
+                    />
+                    {savingCost.has(cmd.key) && (
+                      <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+
                   {/* Toggle */}
                   <div className="shrink-0">
                     {busy ? (
@@ -252,10 +325,16 @@ export default function CommandsPage() {
 
       {/* Info box */}
       {!loading && !error && (
-        <div className="rounded-xl border border-border bg-secondary/30 px-5 py-4 text-xs text-muted-foreground space-y-1">
+        <div className="rounded-xl border border-border bg-secondary/30 px-5 py-4 text-xs text-muted-foreground space-y-2">
           <p className="font-semibold text-foreground text-xs">ℹ️ Cara kerja</p>
-          <p>Command yang dinonaktifkan tidak akan bisa dijalankan pengguna di WhatsApp — bot akan membalas dengan pesan bahwa perintah tersebut sedang dinonaktifkan.</p>
-          <p className="mt-1">Perubahan berlaku <span className="text-foreground font-medium">langsung</span> tanpa perlu restart bot.</p>
+          <p>Command yang dinonaktifkan tidak akan bisa dijalankan pengguna — bot akan membalas bahwa perintah sedang dinonaktifkan.</p>
+          <div className="flex items-start gap-1.5 mt-1">
+            <Zap className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+            <p>
+              <span className="text-foreground font-medium">Kolom limit</span> — isi angka berapa limit yang dibutuhkan untuk menjalankan command tersebut. Isi <span className="text-foreground font-medium">0</span> berarti gratis. Klik di luar kolom atau tekan <kbd className="bg-secondary border border-border rounded px-1">Enter</kbd> untuk menyimpan.
+            </p>
+          </div>
+          <p>Perubahan berlaku <span className="text-foreground font-medium">langsung</span> tanpa perlu restart bot.</p>
         </div>
       )}
     </div>

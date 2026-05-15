@@ -6,6 +6,7 @@ import { logger } from "./lib/logger";
 import { connectDB } from "./config/db";
 import { Bot } from "./models/Bot";
 import { startWhatsAppBot } from "./lib/whatsapp";
+import { scheduleNextReset, resetAllLimits } from "./lib/limitReset";
 
 const app: Express = express();
 
@@ -56,7 +57,11 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 connectDB()
-  .then(() => reconnectActiveBots())
+  .then(async () => {
+    await resetAllLimits();
+    scheduleNextReset();
+    await reconnectActiveBots();
+  })
   .catch((err) => {
     logger.error({ err }, "Failed to connect to MongoDB");
     process.exit(1);

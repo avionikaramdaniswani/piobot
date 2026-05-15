@@ -12,6 +12,7 @@ import {
   LogOut,
   Zap,
   ChevronRight,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -104,6 +105,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           <NavItem href="/config" label="Config" icon={Settings} active={isActive("/config")} />
           <NavItem href="/mess" label="Mess" icon={MessageSquare} disabled active={false} />
           <NavItem href="/command" label="Command" icon={TerminalSquare} active={isActive("/command")} />
+          <NavItem href="/bot-users" label="Pengguna Bot" icon={Users} active={isActive("/bot-users")} />
           <NavItem href="/filter" label="Filter Command" icon={Filter} disabled active={false} />
           <NavItem href="/menu" label="Menu" icon={MenuIcon} disabled active={false} />
         </nav>

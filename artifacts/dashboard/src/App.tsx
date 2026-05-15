@@ -16,6 +16,7 @@ import Dashboard from "@/pages/dashboard";
 import Subscription from "@/pages/subscription";
 import ConfigPage from "@/pages/config";
 import CommandsPage from "@/pages/commands";
+import BotUsersPage from "@/pages/bot-users";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -53,6 +54,9 @@ function Router() {
       </Route>
       <Route path="/command">
         <ProtectedLayout><CommandsPage /></ProtectedLayout>
+      </Route>
+      <Route path="/bot-users">
+        <ProtectedLayout><BotUsersPage /></ProtectedLayout>
       </Route>
       <Route path="/subscription">
         <ProtectedLayout><Subscription /></ProtectedLayout>
