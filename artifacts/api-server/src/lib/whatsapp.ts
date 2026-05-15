@@ -1,18 +1,12 @@
 import makeWASocket, {
-  useMultiFileAuthState,
   DisconnectReason,
   Browsers,
   WAMessage,
 } from "ourin-baileys";
 import pino from "pino";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { mkdir } from "node:fs/promises";
-import { Bot } from "../models/Bot";
-import { logger } from "./logger";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SESSIONS_DIR = path.resolve(__dirname, "../../sessions");
+import { Bot } from "../models/Bot.js";
+import { logger } from "./logger.js";
+import { useMongoAuthState, deleteMongoAuthState } from "./mongoAuthState.js";
 
 const activeSockets = new Map<string, ReturnType<typeof makeWASocket>>();
 const qrCodes = new Map<string, string>();
@@ -20,13 +14,7 @@ const botPrefixes = new Map<string, string>();
 
 const silentLogger = pino({ level: "silent" });
 
-async function ensureSessionDir(botId: string): Promise<string> {
-  const dir = path.join(SESSIONS_DIR, botId);
-  await mkdir(dir, { recursive: true });
-  return dir;
-}
-
-// ─── Command Handlers ────────────────────────────────────────────────────────
+// ─── Command Handlers ─────────────────────────────────────────────────────────
 
 type CommandContext = {
   sock: ReturnType<typeof makeWASocket>;
@@ -121,7 +109,7 @@ defineCommand(["owner"], async ({ sock, jid }) => {
   });
 });
 
-// ─── Message Handler ─────────────────────────────────────────────────────────
+// ─── Message Handler ──────────────────────────────────────────────────────────
 
 function extractText(msg: WAMessage): string | null {
   const m = msg.message;
@@ -139,11 +127,7 @@ function extractText(msg: WAMessage): string | null {
 }
 
 function getSender(msg: WAMessage): string {
-  return (
-    msg.key.participant ||
-    msg.key.remoteJid ||
-    ""
-  );
+  return msg.key.participant || msg.key.remoteJid || "";
 }
 
 async function handleMessage(
@@ -156,10 +140,7 @@ async function handleMessage(
     const jid = msg.key.remoteJid;
     if (!jid) return;
 
-    // Skip messages sent by the bot itself
     if (msg.key.fromMe) return;
-
-    // Skip status broadcasts
     if (jid === "status@broadcast") return;
 
     const text = extractText(msg);
@@ -168,7 +149,6 @@ async function handleMessage(
     const prefix = botPrefixes.get(botId) ?? ".";
     const trimmed = text.trim();
 
-    // Must start with prefix to be a command
     if (!trimmed.startsWith(prefix)) return;
 
     const isGroup = jid.endsWith("@g.us");
@@ -189,7 +169,6 @@ async function handleMessage(
       return;
     }
 
-    // Send "typing..." presence
     await sock.sendPresenceUpdate("composing", jid);
 
     await handler({
@@ -204,7 +183,6 @@ async function handleMessage(
       quotedMsg: msg.message?.extendedTextMessage?.contextInfo?.quotedMessage ?? undefined,
     });
 
-    // Reset presence
     await sock.sendPresenceUpdate("paused", jid);
   } catch (err) {
     logger.error({ botId, err }, "Error handling message");
@@ -219,14 +197,12 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
     return;
   }
 
-  // Load bot config (name + prefix) from DB
   const botDoc = await Bot.findById(botId);
   const botName = botDoc?.name ?? "WhatsApp Bot";
   const prefix = botDoc?.prefix ?? ".";
   botPrefixes.set(botId, prefix);
 
-  const sessionDir = await ensureSessionDir(botId);
-  const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+  const { state, saveCreds } = await useMongoAuthState(botId);
 
   const sock = makeWASocket({
     auth: state,
@@ -251,8 +227,7 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
     if (connection === "open") {
       qrCodes.delete(botId);
       logger.info({ botId }, "WhatsApp connected");
-      const info = sock.user;
-      const phoneNumber = info?.id?.split(":")[0]?.split("@")[0];
+      const phoneNumber = sock.user?.id?.split(":")[0]?.split("@")[0];
       await Bot.findByIdAndUpdate(botId, {
         status: "connected",
         ...(phoneNumber ? { phoneNumber: `+${phoneNumber}` } : {}),
@@ -270,14 +245,17 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
       logger.info({ botId, code, loggedOut }, "WhatsApp connection closed");
       await Bot.findByIdAndUpdate(botId, { status: loggedOut ? "inactive" : "disconnected" });
 
-      if (!loggedOut) {
+      if (loggedOut) {
+        // Wipe session data from MongoDB on explicit logout
+        await deleteMongoAuthState(botId);
+        logger.info({ botId }, "Session data wiped from MongoDB after logout");
+      } else {
         logger.info({ botId }, "Reconnecting in 5s...");
         setTimeout(() => startWhatsAppBot(botId), 5000);
       }
     }
   });
 
-  // ── Message listener (private + group) ──
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return;
     for (const msg of messages) {
