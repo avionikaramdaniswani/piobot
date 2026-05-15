@@ -12,6 +12,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Bot as BotIcon, Plus, Search, Terminal } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const statusLabel: Record<string, string> = {
+  all: "Semua",
+  connected: "Terhubung",
+  connecting: "Menghubungkan",
+  disconnected: "Terputus",
+  inactive: "Nonaktif",
+};
+
 export default function BotsList() {
   const { data: bots, isLoading } = useListBots({
     query: { queryKey: getListBotsQueryKey() }
@@ -36,9 +44,9 @@ export default function BotsList() {
       setIsDialogOpen(false);
       setNewBotName("");
       setNewBotPrefix("!");
-      toast({ title: "Instance Created", description: "New bot instance initialized successfully." });
+      toast({ title: "Bot Dibuat", description: "Bot baru berhasil ditambahkan." });
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Error", description: err.message || "Failed to create bot." });
+      toast({ variant: "destructive", title: "Gagal", description: err.message || "Tidak dapat membuat bot." });
     }
   };
 
@@ -54,27 +62,27 @@ export default function BotsList() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Terminal className="w-8 h-8 text-primary" />
-            Bot Instances
+            Daftar Bot
           </h1>
-          <p className="text-muted-foreground mt-2">Manage and monitor all deployed bots.</p>
+          <p className="text-muted-foreground mt-2">Kelola dan pantau semua bot yang aktif.</p>
         </div>
         
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2">
-              <Plus className="w-4 h-4" /> Initialize Bot
+              <Plus className="w-4 h-4" /> Tambah Bot
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[425px] bg-card border-border">
             <DialogHeader>
-              <DialogTitle>Initialize New Instance</DialogTitle>
+              <DialogTitle>Tambah Bot Baru</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreateBot} className="space-y-4 pt-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Instance Name</Label>
+                <Label htmlFor="name">Nama Bot</Label>
                 <Input
                   id="name"
-                  placeholder="e.g. SalesBot-Alpha"
+                  placeholder="contoh: BotPenjualan"
                   value={newBotName}
                   onChange={(e) => setNewBotName(e.target.value)}
                   required
@@ -82,7 +90,7 @@ export default function BotsList() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="prefix">Command Prefix</Label>
+                <Label htmlFor="prefix">Prefix Perintah</Label>
                 <Input
                   id="prefix"
                   placeholder="!"
@@ -93,7 +101,7 @@ export default function BotsList() {
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={createBotMutation.isPending}>
-                  {createBotMutation.isPending ? "Deploying..." : "Deploy Instance"}
+                  {createBotMutation.isPending ? "Menyimpan..." : "Buat Bot"}
                 </Button>
               </DialogFooter>
             </form>
@@ -105,7 +113,7 @@ export default function BotsList() {
         <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input 
-            placeholder="Search instances..." 
+            placeholder="Cari bot..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 bg-card border-border"
@@ -118,9 +126,9 @@ export default function BotsList() {
               variant={filter === status ? "default" : "outline"} 
               size="sm"
               onClick={() => setFilter(status)}
-              className="capitalize whitespace-nowrap"
+              className="whitespace-nowrap"
             >
-              {status}
+              {statusLabel[status]}
             </Button>
           ))}
         </div>
@@ -133,8 +141,8 @@ export default function BotsList() {
       ) : filteredBots?.length === 0 ? (
         <div className="border border-dashed border-border rounded-xl p-12 text-center bg-card/50">
           <BotIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-          <h3 className="text-lg font-medium text-foreground">No instances matched</h3>
-          <p className="text-muted-foreground text-sm mt-1">Try adjusting your filters or deploy a new instance.</p>
+          <h3 className="text-lg font-medium text-foreground">Tidak ada bot ditemukan</h3>
+          <p className="text-muted-foreground text-sm mt-1">Coba ubah filter atau buat bot baru.</p>
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -154,13 +162,13 @@ export default function BotsList() {
                         bot.status === 'connecting' ? 'bg-yellow-500 animate-bounce' :
                         'bg-destructive'
                       }`}></span>
-                      {bot.status}
+                      {statusLabel[bot.status] ?? bot.status}
                     </Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="text-sm text-muted-foreground font-mono truncate">
-                    {bot.phoneNumber || "No number assigned"}
+                    {bot.phoneNumber || "Nomor belum diatur"}
                   </div>
                   <div className="mt-4 flex items-center justify-between text-xs border-t border-border pt-4">
                     <span className="text-muted-foreground">ID: <span className="font-mono text-foreground opacity-70">{bot.id.slice(0, 8)}...</span></span>
@@ -169,7 +177,7 @@ export default function BotsList() {
                         {bot.subscription.plan}
                       </Badge>
                     ) : (
-                      <span className="text-muted-foreground italic">Free Tier</span>
+                      <span className="text-muted-foreground italic">Gratis</span>
                     )}
                   </div>
                 </CardContent>

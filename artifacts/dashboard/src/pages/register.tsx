@@ -27,8 +27,8 @@ export default function Register() {
     } catch (err: any) {
       toast({
         variant: "destructive",
-        title: "Registration Failed",
-        description: err.message || "Could not create account",
+        title: "Pendaftaran Gagal",
+        description: err.message || "Tidak dapat membuat akun",
       });
     }
   };
@@ -40,18 +40,18 @@ export default function Register() {
           <div className="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center mb-4">
             <Activity className="w-6 h-6 text-primary" />
           </div>
-          <h2 className="text-3xl font-bold tracking-tight text-foreground">Request Access</h2>
-          <p className="text-muted-foreground mt-2">Create a new operator account</p>
+          <h2 className="text-3xl font-bold tracking-tight text-foreground">Buat Akun</h2>
+          <p className="text-muted-foreground mt-2">Daftarkan akun baru Anda</p>
         </div>
 
         <div className="bg-card border border-border p-8 rounded-xl shadow-lg">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="username">Operator Handle</Label>
+              <Label htmlFor="username">Nama Pengguna</Label>
               <Input
                 id="username"
                 type="text"
-                placeholder="neo"
+                placeholder="nama_pengguna"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
@@ -63,7 +63,7 @@ export default function Register() {
               <Input
                 id="email"
                 type="email"
-                placeholder="neo@matrix.net"
+                placeholder="contoh@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -71,7 +71,7 @@ export default function Register() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Passphrase</Label>
+              <Label htmlFor="password">Kata Sandi</Label>
               <Input
                 id="password"
                 type="password"
@@ -83,15 +83,15 @@ export default function Register() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
-              {registerMutation.isPending ? "Generating keys..." : "Register"}
+              {registerMutation.isPending ? "Memproses..." : "Daftar"}
             </Button>
           </form>
         </div>
 
         <p className="text-center text-sm text-muted-foreground">
-          Already have an account?{" "}
+          Sudah punya akun?{" "}
           <Link href="/login" className="text-primary hover:underline font-medium">
-            Sign in
+            Masuk di sini
           </Link>
         </p>
       </div>

@@ -8,9 +8,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuthStore();
 
   const navItems = [
-    { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-    { href: "/bots", label: "My Bots", icon: Bot },
-    { href: "/subscription", label: "Billing & Plans", icon: CreditCard },
+    { href: "/dashboard", label: "Ringkasan", icon: LayoutDashboard },
+    { href: "/bots", label: "Bot Saya", icon: Bot },
+    { href: "/subscription", label: "Paket & Langganan", icon: CreditCard },
   ];
 
   return (
@@ -18,7 +18,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <aside className="w-full md:w-64 border-r border-border bg-card flex flex-col">
         <div className="p-6 flex items-center gap-3">
           <Activity className="w-6 h-6 text-primary" />
-          <span className="font-bold text-lg tracking-tight text-foreground">NexusBot<span className="text-primary">.io</span></span>
+          <span className="font-bold text-lg tracking-tight text-foreground">PioBot<span className="text-primary">.io</span></span>
         </div>
         
         <nav className="flex-1 px-4 space-y-1">
@@ -58,7 +58,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             className="w-full flex items-center gap-3 px-3 py-2 mt-2 rounded-md text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
           >
             <LogOut className="w-4 h-4" />
-            Sign Out
+            Keluar
           </button>
         </div>
       </aside>

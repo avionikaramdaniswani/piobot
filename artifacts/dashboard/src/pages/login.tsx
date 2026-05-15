@@ -26,8 +26,8 @@ export default function Login() {
     } catch (err: any) {
       toast({
         variant: "destructive",
-        title: "Login Failed",
-        description: err.message || "Invalid credentials",
+        title: "Login Gagal",
+        description: err.message || "Email atau password salah",
       });
     }
   };
@@ -39,8 +39,8 @@ export default function Login() {
           <div className="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center mb-4">
             <Activity className="w-6 h-6 text-primary" />
           </div>
-          <h2 className="text-3xl font-bold tracking-tight text-foreground">Welcome back</h2>
-          <p className="text-muted-foreground mt-2">Sign in to your command center</p>
+          <h2 className="text-3xl font-bold tracking-tight text-foreground">Selamat Datang</h2>
+          <p className="text-muted-foreground mt-2">Masuk ke panel kontrol Anda</p>
         </div>
 
         <div className="bg-card border border-border p-8 rounded-xl shadow-lg">
@@ -50,7 +50,7 @@ export default function Login() {
               <Input
                 id="email"
                 type="email"
-                placeholder="operator@nexusbot.io"
+                placeholder="contoh@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -58,7 +58,7 @@ export default function Login() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Kata Sandi</Label>
               <Input
                 id="password"
                 type="password"
@@ -69,15 +69,15 @@ export default function Login() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
-              {loginMutation.isPending ? "Authenticating..." : "Initialize Session"}
+              {loginMutation.isPending ? "Memproses..." : "Masuk"}
             </Button>
           </form>
         </div>
 
         <p className="text-center text-sm text-muted-foreground">
-          Don't have clearance?{" "}
+          Belum punya akun?{" "}
           <Link href="/register" className="text-primary hover:underline font-medium">
-            Request access
+            Daftar sekarang
           </Link>
         </p>
       </div>

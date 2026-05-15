@@ -16,6 +16,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Check, CreditCard, ShieldAlert, Zap } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const planNames: Record<string, string> = {
+  free: "Gratis",
+  basic: "Dasar",
+  premium: "Premium",
+};
+
 export default function Subscription() {
   const { data: plans, isLoading: plansLoading } = useListPlans({
     query: { queryKey: getListPlansQueryKey() }
@@ -33,7 +39,7 @@ export default function Subscription() {
 
   const handleActivate = async (planType: "free" | "basic" | "premium") => {
     if (!selectedBotId) {
-      toast({ variant: "destructive", title: "Action Required", description: "Select a bot instance first." });
+      toast({ variant: "destructive", title: "Pilih Bot", description: "Pilih bot terlebih dahulu sebelum mengaktifkan paket." });
       return;
     }
 
@@ -43,9 +49,9 @@ export default function Subscription() {
       });
       queryClient.invalidateQueries({ queryKey: getListBotsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetSubscriptionStatusQueryKey(selectedBotId) });
-      toast({ title: "Plan Activated", description: `${planType.toUpperCase()} plan applied successfully.` });
+      toast({ title: "Paket Diaktifkan", description: `Paket ${(planNames[planType] ?? planType).toUpperCase()} berhasil diterapkan.` });
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Error", description: err.message || "Could not activate plan." });
+      toast({ variant: "destructive", title: "Gagal", description: err.message || "Tidak dapat mengaktifkan paket." });
     }
   };
 
@@ -54,32 +60,32 @@ export default function Subscription() {
       <div className="text-center space-y-4 mb-12">
         <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-3">
           <Zap className="w-10 h-10 text-primary" />
-          Network Uplink Plans
+          Paket Langganan
         </h1>
         <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-          Scale your bot operations with premium infrastructure and extended capabilities.
+          Tingkatkan kemampuan bot Anda dengan paket premium dan fitur lengkap.
         </p>
       </div>
 
       <div className="bg-card border border-border p-6 rounded-xl flex flex-col sm:flex-row items-center gap-4 justify-between max-w-xl mx-auto mb-12 shadow-lg shadow-black/50">
         <div className="flex items-center gap-3">
           <ShieldAlert className="w-6 h-6 text-primary" />
-          <span className="font-medium text-foreground">Target Instance:</span>
+          <span className="font-medium text-foreground">Pilih Bot:</span>
         </div>
         <div className="w-full sm:w-64">
           <Select value={selectedBotId} onValueChange={setSelectedBotId}>
             <SelectTrigger className="w-full bg-background border-border">
-              <SelectValue placeholder="Select a bot to upgrade" />
+              <SelectValue placeholder="Pilih bot untuk diupgrade" />
             </SelectTrigger>
             <SelectContent>
               {botsLoading ? (
-                <SelectItem value="loading" disabled>Loading...</SelectItem>
+                <SelectItem value="loading" disabled>Memuat...</SelectItem>
               ) : bots?.length === 0 ? (
-                <SelectItem value="none" disabled>No bots available</SelectItem>
+                <SelectItem value="none" disabled>Tidak ada bot tersedia</SelectItem>
               ) : (
                 bots?.map(bot => (
                   <SelectItem key={bot.id} value={bot.id}>
-                    {bot.name} {bot.subscription ? `(${bot.subscription.plan})` : '(Free)'}
+                    {bot.name} {bot.subscription ? `(${planNames[bot.subscription.plan] ?? bot.subscription.plan})` : '(Gratis)'}
                   </SelectItem>
                 ))
               )}
@@ -96,7 +102,6 @@ export default function Subscription() {
         <div className="grid md:grid-cols-3 gap-8 items-end">
           {plans?.map((plan) => {
             const isPremium = plan.name.toLowerCase() === 'premium';
-            const isBasic = plan.name.toLowerCase() === 'basic';
             
             return (
               <Card 
@@ -107,16 +112,16 @@ export default function Subscription() {
               >
                 {isPremium && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
-                    Recommended
+                    Direkomendasikan
                   </div>
                 )}
                 <CardHeader className="text-center pb-2 pt-8">
                   <CardTitle className={`text-2xl font-bold ${isPremium ? 'text-primary' : 'text-foreground'}`}>
-                    {plan.name}
+                    {planNames[plan.name.toLowerCase()] ?? plan.name}
                   </CardTitle>
                   <CardDescription className="flex items-baseline justify-center gap-1 mt-4">
                     <span className="text-4xl font-bold text-foreground">${plan.price}</span>
-                    <span className="text-muted-foreground font-medium">/mo</span>
+                    <span className="text-muted-foreground font-medium">/bln</span>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 mt-6">
@@ -137,7 +142,7 @@ export default function Subscription() {
                     disabled={activateMutation.isPending}
                   >
                     {isPremium ? <CreditCard className="w-4 h-4 mr-2" /> : null}
-                    Select {plan.name}
+                    Pilih {planNames[plan.name.toLowerCase()] ?? plan.name}
                   </Button>
                 </CardFooter>
               </Card>
