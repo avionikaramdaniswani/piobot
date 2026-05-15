@@ -66,44 +66,38 @@ async function isGroupAdmin(
   }
 }
 
-async function resolveGroupStatusContent(
+function resolveGroupStatusContent(
   msg: WAMessage,
   args: string[],
-): Promise<{ content: Record<string, unknown>; error?: string }> {
+): { content: Record<string, unknown>; error?: string } {
   const m = msg.message;
 
   // 1. Pesan langsung berupa gambar (kirim foto + caption .swgc)
+  // Bungkus dengan { message: { imageMessage: ... } } supaya handleGroupStory
+  // skip re-upload dan pakai media yang sudah ada di CDN WhatsApp
   if (m?.imageMessage) {
-    const mediaUrl = m.imageMessage.url;
-    if (!mediaUrl) return { content: {}, error: "no_content" };
-    const caption = args.join(" ") || "";
-    return { content: { image: { url: mediaUrl }, caption } };
+    const img = { ...m.imageMessage, caption: args.join(" ") || m.imageMessage.caption || "" };
+    return { content: { message: { imageMessage: img } } };
   }
 
-  // 2. Pesan langsung berupa video (kirim video + caption .swgc)
+  // 2. Pesan langsung berupa video
   if (m?.videoMessage) {
-    const mediaUrl = m.videoMessage.url;
-    if (!mediaUrl) return { content: {}, error: "no_content" };
-    const caption = args.join(" ") || "";
-    return { content: { video: { url: mediaUrl }, caption } };
+    const vid = { ...m.videoMessage, caption: args.join(" ") || m.videoMessage.caption || "" };
+    return { content: { message: { videoMessage: vid } } };
   }
 
   // 3. Reply ke gambar
   const quoted = m?.extendedTextMessage?.contextInfo?.quotedMessage;
 
   if (quoted?.imageMessage) {
-    const mediaUrl = quoted.imageMessage.url;
-    if (!mediaUrl) return { content: {}, error: "no_content" };
-    const caption = quoted.imageMessage.caption || args.join(" ") || "";
-    return { content: { image: { url: mediaUrl }, caption } };
+    const img = { ...quoted.imageMessage, caption: args.join(" ") || quoted.imageMessage.caption || "" };
+    return { content: { message: { imageMessage: img } } };
   }
 
   // 4. Reply ke video
   if (quoted?.videoMessage) {
-    const mediaUrl = quoted.videoMessage.url;
-    if (!mediaUrl) return { content: {}, error: "no_content" };
-    const caption = quoted.videoMessage.caption || args.join(" ") || "";
-    return { content: { video: { url: mediaUrl }, caption } };
+    const vid = { ...quoted.videoMessage, caption: args.join(" ") || quoted.videoMessage.caption || "" };
+    return { content: { message: { videoMessage: vid } } };
   }
 
   // 5. Teks biasa
@@ -145,7 +139,7 @@ defineCommand(["swgc"], async ({ sock, jid, sender, isGroup, args, prefix, botId
   }
 
   try {
-    await sock.sendMessage("status@broadcast", content as any, { statusJidList: [jid] });
+    await (sock as any).swgc(jid, content);
     await sock.sendMessage(jid, { text: `✅ Status grup berhasil dikirim!` });
   } catch (err: any) {
     logger.error({ err, botId }, "swgc: gagal kirim status grup");
@@ -185,7 +179,7 @@ defineCommand(["swgcbyid"], async ({ sock, jid, sender, args, prefix, botId, msg
   }
 
   try {
-    await sock.sendMessage("status@broadcast", content as any, { statusJidList: [targetJid] });
+    await (sock as any).swgc(targetJid, content);
     await sock.sendMessage(jid, { text: `✅ Status berhasil dikirim ke grup \`${targetJid}\`!` });
   } catch (err: any) {
     logger.error({ err, botId }, "swgcbyid: gagal kirim status grup");
