@@ -54,6 +54,7 @@ export async function ensureBotUser(
   botId: string,
   senderJid: string,
   displayName?: string,
+  phoneNumber?: string,
 ): Promise<import("../models/BotUser.js").IBotUser> {
   const midnight = getMidnightWIB();
 
@@ -62,21 +63,29 @@ export async function ensureBotUser(
     user = await BotUser.create({
       botId,
       senderJid,
+      phoneNumber: phoneNumber ?? "",
       displayName: displayName ?? "",
       balance: 0,
       limit: DEFAULT_LIMIT,
       limitResetAt: new Date(),
     });
   } else {
+    let dirty = false;
     if (!user.limitResetAt || user.limitResetAt < midnight) {
       user.limit = DEFAULT_LIMIT;
       user.limitResetAt = new Date();
-      await user.save();
+      dirty = true;
     }
     if (displayName && displayName !== user.displayName) {
       user.displayName = displayName;
-      await user.save();
+      dirty = true;
     }
+    // Update phoneNumber jika belum ada atau berubah
+    if (phoneNumber && phoneNumber !== user.phoneNumber) {
+      user.phoneNumber = phoneNumber;
+      dirty = true;
+    }
+    if (dirty) await user.save();
   }
 
   return user;

@@ -5,6 +5,7 @@ import makeWASocket, {
 } from "ourin-baileys";
 import pino from "pino";
 import { Bot } from "../models/Bot.js";
+import { BotUser } from "../models/BotUser.js";
 import { logger } from "./logger.js";
 import { useMongoAuthState, deleteMongoAuthState } from "./mongoAuthState.js";
 import { emitBotLog } from "./botLogger.js";
@@ -91,13 +92,28 @@ async function isBotOwner(
 ): Promise<boolean> {
   const botDoc = await Bot.findById(botId).lean();
   const owners: Array<{ phoneNumber: string }> = (botDoc as any)?.owners ?? [];
+  const ownerNums = owners.map((o) => normalizePhone(o.phoneNumber));
 
   if (sender.endsWith("@lid")) {
-    // Cek tiap owner via LID matching
+    // 1. Cek BotUser — paling cepat, sudah pernah resolved sebelumnya
+    const botUser = await BotUser.findOne({ botId, senderJid: sender }).lean();
+    if (botUser?.phoneNumber) {
+      const matched = ownerNums.some((n) => n === normalizePhone(botUser.phoneNumber));
+      logger.info({ sender, phoneNumber: botUser.phoneNumber, matched }, "LID owner check via BotUser");
+      if (matched) return true;
+    }
+
+    // 2. Coba via USync / signal repository (network lookup)
     for (const owner of owners) {
       const matched = await isLidMatchingPhone(sock, sender, owner.phoneNumber);
       if (matched) {
-        logger.info({ sender, phone: owner.phoneNumber, botId }, "LID owner matched");
+        logger.info({ sender, phone: owner.phoneNumber, botId }, "LID owner matched via USync");
+        // Simpan ke BotUser supaya next check lebih cepat
+        await BotUser.findOneAndUpdate(
+          { botId, senderJid: sender },
+          { $set: { phoneNumber: normalizePhone(owner.phoneNumber) } },
+          { upsert: false },
+        );
         return true;
       }
     }
@@ -107,7 +123,6 @@ async function isBotOwner(
 
   // Nomor biasa: "628xxx@s.whatsapp.net" atau "628xxx:0@s.whatsapp.net"
   const senderNum = normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
-  const ownerNums = owners.map((o) => normalizePhone(o.phoneNumber));
   const matched = ownerNums.some((n) => n === senderNum);
   logger.info({ senderNum, ownerNums, matched, botId }, "isBotOwner check");
   return matched;
@@ -585,6 +600,20 @@ async function handleMessage(
     const senderShort = shortJid(sender || jid);
     const chatLabel = isGroup ? "grup" : "private";
 
+    // Resolve phone number dari sender (termasuk LID) — simpan ke BotUser supaya owner check bisa pakai
+    let resolvedPhone = "";
+    if (sender.endsWith("@lid")) {
+      try {
+        const signalRepo = (sock as any).signalRepository;
+        const reverseResult = await signalRepo?.lidMapping?.getPNForLID(sender);
+        if (reverseResult?.pn) {
+          resolvedPhone = normalizePhone(reverseResult.pn.split("@")[0]?.split(":")[0] ?? "");
+        }
+      } catch { /* silent */ }
+    } else {
+      resolvedPhone = normalizePhone(sender.split("@")[0]?.split(":")[0] ?? "");
+    }
+
     // Find which prefix was used (longest match first to avoid ambiguity)
     const sorted = [...prefixes].sort((a, b) => b.length - a.length);
     const matchedPrefix = sorted.find((p) => trimmed.startsWith(p));
@@ -635,7 +664,7 @@ async function handleMessage(
 
       if (limitCost > 0) {
         const pushName = (msg as any)?.pushName ?? "";
-        const botUser = await ensureBotUser(botId, sender || jid, pushName);
+        const botUser = await ensureBotUser(botId, sender || jid, pushName, resolvedPhone || undefined);
 
         if (botUser.limit < limitCost) {
           emitBotLog(botId, `${senderShort} limit habis saat mencoba ${matchedPrefix}${commandName}`, "warn");

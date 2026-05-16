@@ -10,12 +10,10 @@ router.get("/bots/:id/messages", requireAuth, async (req, res): Promise<void> =>
   const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
   if (!bot) { res.status(404).json({ error: "Bot not found" }); return; }
 
-  const doc = await BotMessages.findOne({ botId: bot._id }).lean();
+  const doc = await BotMessages.findOne({ botId: bot._id });
   const messages: Record<string, string> = {};
   if (doc?.messages) {
-    (doc.messages as any).forEach((val: string, key: string) => {
-      messages[key] = val;
-    });
+    doc.messages.forEach((val, key) => { messages[key] = val; });
   }
 
   res.json({ messages });
