@@ -37,8 +37,9 @@ export async function toStickerWebP(
       await execFileAsync("ffmpeg", [
         "-i", tmpIn,
         "-vf", "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=white@0",
+        "-frames:v", "1",
         "-vcodec", "libwebp",
-        "-lossless", "1",
+        "-quality", "80",
         "-y",
         tmpOut,
       ]);

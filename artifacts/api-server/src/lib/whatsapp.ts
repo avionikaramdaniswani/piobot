@@ -3,6 +3,7 @@ import makeWASocket, {
   Browsers,
   WAMessage,
 } from "ourin-baileys";
+import https from "https";
 // @ts-ignore – downloadMediaMessage is not re-exported from the main package
 import { downloadMediaMessage } from "ourin-baileys/lib/Utils/messages.js";
 import pino from "pino";
@@ -796,6 +797,12 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
 
   const { state, saveCreds } = await useMongoAuthState(botId);
 
+  const fetchAgent = new https.Agent({
+    keepAlive: true,
+    keepAliveMsecs: 30_000,
+    timeout: 60_000,
+  });
+
   const sock = makeWASocket({
     auth: state,
     logger: silentLogger,
@@ -803,6 +810,7 @@ export async function startWhatsAppBot(botId: string): Promise<void> {
     syncFullHistory: false,
     qrTimeout: 60_000,
     markOnlineOnConnect: true,
+    fetchAgent,
   });
 
   activeSockets.set(botId, sock);
