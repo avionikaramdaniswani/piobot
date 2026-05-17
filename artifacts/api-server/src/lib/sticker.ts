@@ -24,7 +24,7 @@ export async function toStickerWebP(
       await execFileAsync("ffmpeg", [
         "-i", tmpIn,
         "-vcodec", "libwebp",
-        "-vf", "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=white@0,fps=15",
+        "-vf", "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=white,fps=15",
         "-loop", "0",
         "-preset", "default",
         "-an",
@@ -36,7 +36,7 @@ export async function toStickerWebP(
     } else {
       await execFileAsync("ffmpeg", [
         "-i", tmpIn,
-        "-vf", "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=white@0",
+        "-vf", "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=white",
         "-frames:v", "1",
         "-vcodec", "libwebp",
         "-quality", "80",
@@ -46,7 +46,10 @@ export async function toStickerWebP(
     }
 
     const webpBuffer = await readFile(tmpOut);
-    return addStickerMetadata(webpBuffer, packName, packAuthor);
+    // DEBUG: save raw ffmpeg output for inspection
+    await writeFile("/tmp/sticker_debug_raw.webp", webpBuffer).catch(() => {});
+    // DIAGNOSTIC: return raw VP8 without EXIF conversion to isolate blank-sticker cause
+    return webpBuffer;
   } finally {
     await Promise.all([
       unlink(tmpIn).catch(() => {}),
