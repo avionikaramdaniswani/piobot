@@ -37,6 +37,7 @@ const botSchema = new mongoose.Schema(
     connectedAt: { type: Date, default: null },
     commands: { type: Map, of: Boolean, default: {} },
     commandLimitCost: { type: Map, of: Number, default: {} },
+    commandOwnerOnly: { type: Map, of: Boolean, default: {} },
   },
   { timestamps: true },
 );
@@ -69,6 +70,7 @@ export interface IBot extends mongoose.Document {
   createdAt: Date;
   commands: Map<string, boolean>;
   commandLimitCost: Map<string, number>;
+  commandOwnerOnly: Map<string, boolean>;
 }
 
 export const Bot = mongoose.model<IBot>("Bot", botSchema);

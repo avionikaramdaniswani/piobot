@@ -683,6 +683,20 @@ async function handleMessage(
         await botUser.save();
         emitBotLog(botId, `${senderShort} pakai ${limitCost} limit untuk ${matchedPrefix}${commandName} (sisa: ${botUser.limit})`, "muted");
       }
+
+      // ── Owner-only check ──────────────────────────────────────────────────
+      const ownerOnlyMap = (botDoc as any)?.commandOwnerOnly as Record<string, boolean> | undefined;
+      const isOwnerOnly = ownerOnlyMap ? (ownerOnlyMap[cmdKey] === true) : false;
+      if (isOwnerOnly) {
+        const isOwner = await isBotOwner(botId, sender, sock);
+        if (!isOwner) {
+          emitBotLog(botId, `${senderShort} mencoba perintah owner-only: ${matchedPrefix}${commandName}`, "warn");
+          await sock.sendMessage(jid, {
+            text: `🔒 Perintah *${matchedPrefix}${commandName}* hanya bisa digunakan oleh *owner bot*.`,
+          });
+          return;
+        }
+      }
     }
 
     await sock.sendPresenceUpdate("composing", jid);

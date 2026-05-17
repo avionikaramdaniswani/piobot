@@ -20,6 +20,7 @@ import {
   Hash,
   AlignLeft,
   Settings2,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,20 +32,25 @@ interface CommandItem {
   category: string;
   enabled: boolean;
   limitCost: number;
+  ownerOnly: boolean;
 }
 
 async function fetchCommands(botId: string, token: string): Promise<CommandItem[]> {
-  const [cmdRes, costRes] = await Promise.all([
+  const [cmdRes, costRes, ownerRes] = await Promise.all([
     fetch(`/api/bots/${botId}/commands`, { headers: { Authorization: `Bearer ${token}` } }),
     fetch(`/api/bots/${botId}/commands/limit-cost`, { headers: { Authorization: `Bearer ${token}` } }),
+    fetch(`/api/bots/${botId}/commands/owner-only`, { headers: { Authorization: `Bearer ${token}` } }),
   ]);
   if (!cmdRes.ok) throw new Error("Gagal memuat command");
   const data = await cmdRes.json();
   const costData = costRes.ok ? await costRes.json() : { limitCost: {} };
+  const ownerData = ownerRes.ok ? await ownerRes.json() : { ownerOnly: {} };
   const costMap: Record<string, number> = costData.limitCost ?? {};
-  return (data.commands as Omit<CommandItem, "limitCost">[]).map((c) => ({
+  const ownerMap: Record<string, boolean> = ownerData.ownerOnly ?? {};
+  return (data.commands as Omit<CommandItem, "limitCost" | "ownerOnly">[]).map((c) => ({
     ...c,
     limitCost: costMap[c.key] ?? 0,
+    ownerOnly: ownerMap[c.key] === true,
   }));
 }
 
@@ -55,6 +61,15 @@ async function patchLimitCost(botId: string, key: string, cost: number, token: s
     body: JSON.stringify({ cost }),
   });
   if (!res.ok) throw new Error("Gagal menyimpan limit cost");
+}
+
+async function patchOwnerOnly(botId: string, key: string, ownerOnly: boolean, token: string): Promise<void> {
+  const res = await fetch(`/api/bots/${botId}/commands/${key}/owner-only`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ ownerOnly }),
+  });
+  if (!res.ok) throw new Error("Gagal menyimpan pengaturan owner only");
 }
 
 async function patchCommand(botId: string, key: string, enabled: boolean, token: string): Promise<void> {
@@ -92,6 +107,7 @@ function CommandDetailModal({
   const [costInput, setCostInput] = useState(String(cmd.limitCost));
   const [savingCost, setSavingCost] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [savingOwnerOnly, setSavingOwnerOnly] = useState(false);
 
   const handleToggle = async () => {
     if (toggling) return;
@@ -100,7 +116,8 @@ function CommandDetailModal({
     setToggling(true);
     try {
       await patchCommand(botId, localCmd.key, next, token);
-      onUpdate({ ...localCmd, enabled: next });
+      const updated = { ...localCmd, enabled: next };
+      onUpdate(updated);
       toast({
         title: next ? "Command diaktifkan" : "Command dinonaktifkan",
         description: `Perintah .${localCmd.key} berhasil ${next ? "diaktifkan" : "dinonaktifkan"}.`,
@@ -110,6 +127,28 @@ function CommandDetailModal({
       toast({ variant: "destructive", title: "Gagal", description: "Tidak dapat mengubah status command." });
     } finally {
       setToggling(false);
+    }
+  };
+
+  const handleOwnerOnlyToggle = async (next: boolean) => {
+    if (savingOwnerOnly) return;
+    setLocalCmd((prev) => ({ ...prev, ownerOnly: next }));
+    setSavingOwnerOnly(true);
+    try {
+      await patchOwnerOnly(botId, localCmd.key, next, token);
+      const updated = { ...localCmd, ownerOnly: next };
+      onUpdate(updated);
+      toast({
+        title: next ? "Owner only diaktifkan" : "Owner only dinonaktifkan",
+        description: next
+          ? `Perintah .${localCmd.key} sekarang hanya bisa dipakai owner bot.`
+          : `Perintah .${localCmd.key} sekarang bisa dipakai semua pengguna.`,
+      });
+    } catch {
+      setLocalCmd((prev) => ({ ...prev, ownerOnly: !next }));
+      toast({ variant: "destructive", title: "Gagal", description: "Tidak dapat menyimpan pengaturan owner only." });
+    } finally {
+      setSavingOwnerOnly(false);
     }
   };
 
@@ -138,7 +177,7 @@ function CommandDetailModal({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="w-full max-w-lg sm:max-w-xl mx-4 sm:mx-auto">
         <DialogHeader>
           <div className="flex items-center gap-3 mb-1">
             <div
@@ -151,55 +190,67 @@ function CommandDetailModal({
             >
               <TerminalSquare className="w-5 h-5" />
             </div>
-            <div>
-              <DialogTitle className="font-mono text-base">
-                .{localCmd.key}
-              </DialogTitle>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <DialogTitle className="font-mono text-base">.{localCmd.key}</DialogTitle>
+                {localCmd.ownerOnly && (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] px-1.5 py-0 h-4 font-medium border-amber-500/30 text-amber-500 bg-amber-500/5 shrink-0"
+                  >
+                    <ShieldCheck className="w-2.5 h-2.5 mr-0.5" />
+                    owner
+                  </Badge>
+                )}
+              </div>
               <p className="text-xs text-muted-foreground mt-0.5 capitalize">{localCmd.category}</p>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Description */}
-          <div className="rounded-lg bg-secondary/40 border border-border/50 px-4 py-3 space-y-1">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-              <AlignLeft className="w-3 h-3" />
-              Deskripsi
-            </div>
-            <p className="text-sm text-foreground">{localCmd.description}</p>
-          </div>
-
-          {/* Usage */}
-          <div className="rounded-lg bg-secondary/40 border border-border/50 px-4 py-3 space-y-1">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-              <Hash className="w-3 h-3" />
-              Penggunaan
-            </div>
-            <p className="font-mono text-sm text-foreground bg-background/60 rounded px-2 py-1 border border-border/40 inline-block">
-              {localCmd.usage}
-            </p>
-          </div>
-
-          {/* Aliases */}
-          {otherAliases.length > 0 && (
-            <div className="rounded-lg bg-secondary/40 border border-border/50 px-4 py-3 space-y-1.5">
+        <div className="space-y-3">
+          {/* Description + Usage + Aliases — in a 2-col grid on larger screens */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Description */}
+            <div className="rounded-lg bg-secondary/40 border border-border/50 px-4 py-3 space-y-1">
               <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                <Tag className="w-3 h-3" />
-                Alias
+                <AlignLeft className="w-3 h-3" />
+                Deskripsi
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {otherAliases.map((a) => (
-                  <span
-                    key={a}
-                    className="font-mono text-xs bg-background/60 border border-border/40 rounded px-2 py-0.5 text-muted-foreground"
-                  >
-                    .{a}
-                  </span>
-                ))}
-              </div>
+              <p className="text-sm text-foreground leading-relaxed">{localCmd.description}</p>
             </div>
-          )}
+
+            {/* Usage */}
+            <div className="rounded-lg bg-secondary/40 border border-border/50 px-4 py-3 space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                <Hash className="w-3 h-3" />
+                Penggunaan
+              </div>
+              <p className="font-mono text-sm text-foreground bg-background/60 rounded px-2 py-1 border border-border/40 break-all">
+                {localCmd.usage}
+              </p>
+
+              {/* Aliases */}
+              {otherAliases.length > 0 && (
+                <div className="pt-2 space-y-1">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                    <Tag className="w-3 h-3" />
+                    Alias
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {otherAliases.map((a) => (
+                      <span
+                        key={a}
+                        className="font-mono text-xs bg-background/60 border border-border/40 rounded px-1.5 py-0.5 text-muted-foreground"
+                      >
+                        .{a}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* Settings */}
           <div className="rounded-lg border border-border overflow-hidden">
@@ -212,10 +263,10 @@ function CommandDetailModal({
 
             {/* Status toggle */}
             <div className="flex items-center justify-between px-4 py-3.5 border-b border-border/60">
-              <div>
+              <div className="flex-1 min-w-0 mr-4">
                 <p className="text-sm font-medium text-foreground">Status Command</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {localCmd.enabled ? "Command aktif dan bisa digunakan" : "Command dinonaktifkan"}
+                  {localCmd.enabled ? "Aktif — bisa digunakan pengguna" : "Nonaktif — bot akan menolak perintah ini"}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -229,15 +280,40 @@ function CommandDetailModal({
               </div>
             </div>
 
+            {/* Owner Only toggle */}
+            <div className="flex items-center justify-between px-4 py-3.5 border-b border-border/60">
+              <div className="flex-1 min-w-0 mr-4">
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                  <p className="text-sm font-medium text-foreground">Only Owner</p>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {localCmd.ownerOnly
+                    ? "Hanya owner bot yang bisa menjalankan perintah ini"
+                    : "Semua pengguna bisa menjalankan perintah ini"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {savingOwnerOnly && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+                <Switch
+                  checked={localCmd.ownerOnly}
+                  onCheckedChange={handleOwnerOnlyToggle}
+                  disabled={savingOwnerOnly}
+                  aria-label={`Owner only ${localCmd.key}`}
+                  className="data-[state=checked]:bg-amber-500"
+                />
+              </div>
+            </div>
+
             {/* Limit cost */}
             <div className="flex items-center justify-between px-4 py-3.5">
-              <div>
+              <div className="flex-1 min-w-0 mr-4">
                 <div className="flex items-center gap-1.5">
                   <Zap className="w-3.5 h-3.5 text-blue-400" />
                   <p className="text-sm font-medium text-foreground">Limit Cost</p>
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Jumlah limit yang dikurangi saat command dipakai
+                  Jumlah limit yang dikurangi saat command dipakai (0 = gratis)
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -257,7 +333,7 @@ function CommandDetailModal({
                   onClick={handleSaveCost}
                   disabled={savingCost || costInput === String(localCmd.limitCost)}
                   className={cn(
-                    "h-8 px-3 rounded-md text-xs font-medium transition-colors",
+                    "h-8 px-3 rounded-md text-xs font-medium transition-colors whitespace-nowrap",
                     costInput !== String(localCmd.limitCost) && !savingCost
                       ? "bg-primary text-primary-foreground hover:bg-primary/90"
                       : "bg-secondary text-muted-foreground cursor-not-allowed",
@@ -401,7 +477,7 @@ export default function CommandsPage() {
                   key={cmd.key}
                   onClick={() => setSelectedCmd(cmd)}
                   className={cn(
-                    "flex items-center gap-4 px-5 py-4 bg-card transition-colors cursor-pointer group",
+                    "flex items-center gap-3 px-4 py-3.5 bg-card transition-colors cursor-pointer group",
                     "hover:bg-secondary/40",
                     !cmd.enabled && "opacity-60",
                   )}
@@ -409,23 +485,23 @@ export default function CommandsPage() {
                   {/* Icon */}
                   <div
                     className={cn(
-                      "w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border transition-colors",
+                      "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border transition-colors",
                       cmd.enabled
                         ? "bg-primary/10 border-primary/20 text-primary"
                         : "bg-secondary border-border text-muted-foreground",
                     )}
                   >
-                    <TerminalSquare className="w-4 h-4" />
+                    <TerminalSquare className="w-3.5 h-3.5" />
                   </div>
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-mono text-sm font-semibold text-foreground">
                         .{cmd.key}
                       </span>
                       {otherAliases.length > 0 && (
-                        <span className="text-[11px] text-muted-foreground/50 font-mono hidden sm:inline">
+                        <span className="text-[11px] text-muted-foreground/50 font-mono hidden md:inline">
                           {otherAliases.map((a) => `.${a}`).join(", ")}
                         </span>
                       )}
@@ -440,14 +516,23 @@ export default function CommandsPage() {
                       >
                         {cmd.enabled ? "aktif" : "nonaktif"}
                       </Badge>
+                      {cmd.ownerOnly && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 h-4 font-medium shrink-0 border-amber-500/30 text-amber-500 bg-amber-500/5"
+                        >
+                          <ShieldCheck className="w-2.5 h-2.5 mr-0.5" />
+                          owner
+                        </Badge>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-lg">
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
                       {cmd.description}
                     </p>
                   </div>
 
                   {/* Limit cost badge */}
-                  <div className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground/60">
+                  <div className="shrink-0 flex items-center gap-1 text-muted-foreground/50">
                     <Zap className="w-3 h-3 text-blue-400" />
                     <span className="font-mono text-[11px]">{cmd.limitCost}</span>
                   </div>
@@ -482,7 +567,13 @@ export default function CommandsPage() {
         <div className="rounded-xl border border-border bg-secondary/30 px-5 py-4 text-xs text-muted-foreground space-y-2">
           <p className="font-semibold text-foreground text-xs">ℹ️ Cara kerja</p>
           <p>Command yang dinonaktifkan tidak akan bisa dijalankan pengguna — bot akan membalas bahwa perintah sedang dinonaktifkan.</p>
-          <div className="flex items-start gap-1.5 mt-1">
+          <div className="flex items-start gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+            <p>
+              <span className="text-foreground font-medium">Owner only</span> — command hanya bisa dijalankan oleh owner bot. Badge <span className="text-amber-500 font-medium">owner</span> akan muncul di list.
+            </p>
+          </div>
+          <div className="flex items-start gap-1.5">
             <Zap className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
             <p>
               <span className="text-foreground font-medium">Limit cost</span> — angka di sebelah toggle menunjukkan limit yang dibutuhkan. Klik command untuk mengubah pengaturan lebih lanjut.

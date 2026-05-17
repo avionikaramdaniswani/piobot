@@ -167,4 +167,43 @@ router.patch("/bots/:id/commands/:key/limit-cost", requireAuth, async (req, res)
   res.json({ key: req.params.key, cost });
 });
 
+// ── GET /bots/:id/commands/owner-only — get ownerOnly map ─────────────────────
+router.get("/bots/:id/commands/owner-only", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.userId;
+  const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
+  if (!bot) {
+    res.status(404).json({ error: "Bot not found" });
+    return;
+  }
+
+  const ownerOnlyMap: Record<string, boolean> = {};
+  bot.commandOwnerOnly.forEach((val, key) => {
+    ownerOnlyMap[key] = val;
+  });
+
+  res.json({ ownerOnly: ownerOnlyMap });
+});
+
+// ── PATCH /bots/:id/commands/:key/owner-only — set ownerOnly for a command ────
+router.patch("/bots/:id/commands/:key/owner-only", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.user!.userId;
+  const bot = await Bot.findOne({ _id: req.params.id, ownerId: userId });
+  if (!bot) {
+    res.status(404).json({ error: "Bot not found" });
+    return;
+  }
+
+  const { ownerOnly } = req.body;
+  if (typeof ownerOnly !== "boolean") {
+    res.status(400).json({ error: "ownerOnly harus berupa boolean" });
+    return;
+  }
+
+  bot.commandOwnerOnly.set(req.params.key, ownerOnly);
+  bot.markModified("commandOwnerOnly");
+  await bot.save();
+
+  res.json({ key: req.params.key, ownerOnly });
+});
+
 export default router;

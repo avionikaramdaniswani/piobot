@@ -304,6 +304,9 @@ router.get("/bots/:id/commands", requireAuth, async (req, res): Promise<void> =>
   const commandsMap: Record<string, boolean> = {};
   bot.commands.forEach((val, key) => { commandsMap[key] = val; });
 
+  const ownerOnlyMap: Record<string, boolean> = {};
+  bot.commandOwnerOnly.forEach((val, key) => { ownerOnlyMap[key] = val; });
+
   const result = COMMAND_REGISTRY.map((cmd) => ({
     key: cmd.key,
     aliases: cmd.aliases,
@@ -311,6 +314,7 @@ router.get("/bots/:id/commands", requireAuth, async (req, res): Promise<void> =>
     usage: cmd.usage,
     category: cmd.category,
     enabled: commandsMap[cmd.key] !== false,
+    ownerOnly: ownerOnlyMap[cmd.key] === true,
   }));
 
   res.json({ commands: result });
