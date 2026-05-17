@@ -77,6 +77,13 @@ export const COMMAND_REGISTRY: CommandMeta[] = [
     usage: ".cekowner",
     category: "Grup",
   },
+  {
+    key: "sticker",
+    aliases: ["sticker", "s"],
+    description: "Konversi foto/video yang di-reply atau dikirim menjadi stiker WhatsApp",
+    usage: ".s atau .sticker — kirim/reply foto atau video",
+    category: "Media",
+  },
 ];
 
 export const ALL_ALIASES = new Set(COMMAND_REGISTRY.flatMap((c) => c.aliases));

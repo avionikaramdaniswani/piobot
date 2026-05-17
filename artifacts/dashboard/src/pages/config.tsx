@@ -26,6 +26,7 @@ import {
   Wifi,
   WifiOff,
   Minus,
+  Sticker,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -93,6 +94,8 @@ function BotConfig({ botId }: { botId: string }) {
   const [prefixes, setPrefixes] = useState<string[]>([]);
   const [newPrefix, setNewPrefix] = useState("");
   const [owners, setOwners] = useState<OwnerEntry[]>([]);
+  const [stickerPackName, setStickerPackName] = useState("");
+  const [stickerPackAuthor, setStickerPackAuthor] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -107,6 +110,8 @@ function BotConfig({ botId }: { botId: string }) {
       setOwners(
         Array.isArray(botAny.owners) ? botAny.owners : []
       );
+      setStickerPackName(botAny.stickerPackName ?? "");
+      setStickerPackAuthor(botAny.stickerPackAuthor ?? "");
     }
   }, [bot]);
 
@@ -130,6 +135,8 @@ function BotConfig({ botId }: { botId: string }) {
           name: name.trim(),
           prefixes,
           owners,
+          stickerPackName: stickerPackName.trim(),
+          stickerPackAuthor: stickerPackAuthor.trim(),
         }),
       });
       if (!res.ok) {
@@ -385,6 +392,44 @@ function BotConfig({ botId }: { botId: string }) {
           <p className="text-xs text-muted-foreground">
             Karakter prefix tidak boleh lebih dari 5 karakter. Pisahkan dengan menambah prefix baru.
           </p>
+        </div>
+      </SectionCard>
+
+      {/* Sticker Metadata */}
+      <SectionCard
+        title="Metadata Stiker"
+        description="Nama pack dan author yang muncul saat pengguna menyimpan stiker dari bot."
+        icon={Sticker}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+          <div className="space-y-2">
+            <Label htmlFor="stickerPackName" className="text-xs font-medium text-muted-foreground">
+              Nama Pack Stiker
+            </Label>
+            <Input
+              id="stickerPackName"
+              value={stickerPackName}
+              onChange={(e) => setStickerPackName(e.target.value)}
+              placeholder="Contoh: Pack Bot Keren"
+              maxLength={64}
+              className="bg-background h-10"
+            />
+            <p className="text-[11px] text-muted-foreground">Muncul sebagai nama koleksi stiker di WhatsApp.</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="stickerPackAuthor" className="text-xs font-medium text-muted-foreground">
+              Author Stiker
+            </Label>
+            <Input
+              id="stickerPackAuthor"
+              value={stickerPackAuthor}
+              onChange={(e) => setStickerPackAuthor(e.target.value)}
+              placeholder="Contoh: Admin Bot"
+              maxLength={64}
+              className="bg-background h-10"
+            />
+            <p className="text-[11px] text-muted-foreground">Nama pembuat yang muncul di bawah nama pack.</p>
+          </div>
         </div>
       </SectionCard>
 

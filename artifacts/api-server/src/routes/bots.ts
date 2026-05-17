@@ -52,6 +52,8 @@ function formatBot(bot: IBot, subscription?: ISubscription | null) {
     owners: bot.owners ?? [],
     connectedAt: bot.connectedAt ? bot.connectedAt.toISOString() : null,
     createdAt: bot.createdAt.toISOString(),
+    stickerPackName: bot.stickerPackName ?? "",
+    stickerPackAuthor: bot.stickerPackAuthor ?? "",
     ...(subscription !== undefined ? { subscription: formatSub(subscription) } : {}),
   };
 }
@@ -155,6 +157,12 @@ router.patch("/bots/:id", requireAuth, async (req, res): Promise<void> => {
         .filter((o: any) => o.name && o.phoneNumber)
         .slice(0, 3);
       update.owners = clean;
+    }
+    if (typeof req.body.stickerPackName === "string") {
+      update.stickerPackName = req.body.stickerPackName.trim().slice(0, 64);
+    }
+    if (typeof req.body.stickerPackAuthor === "string") {
+      update.stickerPackAuthor = req.body.stickerPackAuthor.trim().slice(0, 64);
     }
     const updated = await Bot.findByIdAndUpdate(bot._id, update, { returnDocument: "after" });
     // Sync prefix cache langsung tanpa perlu restart bot

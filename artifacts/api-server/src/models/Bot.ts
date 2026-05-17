@@ -38,6 +38,8 @@ const botSchema = new mongoose.Schema(
     commands: { type: Map, of: Boolean, default: {} },
     commandLimitCost: { type: Map, of: Number, default: {} },
     commandOwnerOnly: { type: Map, of: Boolean, default: {} },
+    stickerPackName: { type: String, default: "" },
+    stickerPackAuthor: { type: String, default: "" },
   },
   { timestamps: true },
 );
@@ -71,6 +73,8 @@ export interface IBot extends mongoose.Document {
   commands: Map<string, boolean>;
   commandLimitCost: Map<string, number>;
   commandOwnerOnly: Map<string, boolean>;
+  stickerPackName: string;
+  stickerPackAuthor: string;
 }
 
 export const Bot = mongoose.model<IBot>("Bot", botSchema);

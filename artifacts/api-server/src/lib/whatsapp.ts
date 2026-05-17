@@ -3,6 +3,8 @@ import makeWASocket, {
   Browsers,
   WAMessage,
 } from "ourin-baileys";
+// @ts-ignore – downloadMediaMessage is not re-exported from the main package
+import { downloadMediaMessage } from "ourin-baileys/lib/Utils/messages.js";
 import pino from "pino";
 import { Bot } from "../models/Bot.js";
 import { BotUser } from "../models/BotUser.js";
@@ -11,6 +13,7 @@ import { useMongoAuthState, deleteMongoAuthState } from "./mongoAuthState.js";
 import { emitBotLog } from "./botLogger.js";
 import { keyForAlias } from "./commandRegistry.js";
 import { ensureBotUser } from "./limitReset.js";
+import { toStickerWebP } from "./sticker.js";
 
 const activeSockets = new Map<string, ReturnType<typeof makeWASocket>>();
 const qrCodes = new Map<string, string>();
@@ -407,6 +410,9 @@ defineCommand(["menu", "help", "start"], async ({ sock, jid, prefix, botName, is
     `${prefix}swgcbyid   - Kirim status ke grup by ID`,
     `${prefix}showidgroup - Lihat semua ID grup bot`,
     ``,
+    `🖼️ *Media*`,
+    `${prefix}s / ${prefix}sticker - Buat stiker dari foto/video`,
+    ``,
     `> Ketik perintah di atas untuk memulai!`,
   ].join("\n");
 
@@ -548,6 +554,52 @@ defineCommand(["profile", "profil", "me"], async ({ sock, jid, sender, botId, pr
   ].join("\n");
 
   await sock.sendMessage(jid, { text });
+});
+
+// .s / .sticker — buat stiker dari foto atau video
+defineCommand(["s", "sticker"], async ({ sock, jid, msg, botId, prefix }) => {
+  const m = msg.message;
+  const quoted = m?.extendedTextMessage?.contextInfo?.quotedMessage;
+
+  let mediaMsg: WAMessage | null = null;
+  let isAnimated = false;
+
+  if (m?.imageMessage) {
+    mediaMsg = msg;
+    isAnimated = false;
+  } else if (m?.videoMessage) {
+    mediaMsg = msg;
+    isAnimated = true;
+  } else if (quoted?.imageMessage) {
+    mediaMsg = { key: msg.key, message: quoted } as WAMessage;
+    isAnimated = false;
+  } else if (quoted?.videoMessage) {
+    mediaMsg = { key: msg.key, message: quoted } as WAMessage;
+    isAnimated = true;
+  } else {
+    await sock.sendMessage(jid, {
+      text: `❌ *Cara pakai ${prefix}sticker:*\n• Kirim foto + caption *${prefix}s*\n• Reply foto/video + ketik *${prefix}s*`,
+    });
+    return;
+  }
+
+  await sock.sendMessage(jid, { text: "⏳ Membuat stiker..." });
+
+  try {
+    const botDoc = await Bot.findById(botId).lean();
+    const packName = (botDoc as any)?.stickerPackName || "Sticker Pack";
+    const packAuthor = (botDoc as any)?.stickerPackAuthor || "Bot";
+
+    const buffer = (await downloadMediaMessage(mediaMsg, "buffer", {})) as Buffer;
+    const webp = await toStickerWebP(buffer, isAnimated, packName, packAuthor);
+
+    await sock.sendMessage(jid, { sticker: webp });
+  } catch (err: any) {
+    logger.error({ err, botId }, "sticker: gagal membuat stiker");
+    await sock.sendMessage(jid, {
+      text: `❌ Gagal membuat stiker.\n${err?.message ?? "Unknown error"}`,
+    });
+  }
 });
 
 // ─── Message Handler ──────────────────────────────────────────────────────────
