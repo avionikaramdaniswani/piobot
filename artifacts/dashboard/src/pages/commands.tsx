@@ -420,19 +420,19 @@ export default function CommandsPage() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
                       <span className="font-mono text-sm font-semibold text-foreground">
-                        {cmd.usage}
+                        .{cmd.key}
                       </span>
                       {otherAliases.length > 0 && (
-                        <span className="text-[11px] text-muted-foreground/60 font-mono">
-                          alias: {otherAliases.map((a) => `.${a}`).join(", ")}
+                        <span className="text-[11px] text-muted-foreground/50 font-mono hidden sm:inline">
+                          {otherAliases.map((a) => `.${a}`).join(", ")}
                         </span>
                       )}
                       <Badge
                         variant="outline"
                         className={cn(
-                          "text-[10px] px-1.5 py-0 h-4 font-medium",
+                          "text-[10px] px-1.5 py-0 h-4 font-medium shrink-0",
                           cmd.enabled
                             ? "border-green-500/30 text-green-500 bg-green-500/5"
                             : "border-zinc-500/30 text-zinc-500 bg-zinc-500/5",
@@ -441,7 +441,7 @@ export default function CommandsPage() {
                         {cmd.enabled ? "aktif" : "nonaktif"}
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-lg">
                       {cmd.description}
                     </p>
                   </div>
